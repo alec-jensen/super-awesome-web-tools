@@ -1,6 +1,6 @@
 services:
     super-awesome-web-tools:
-        image: super-awesome-web-tools:latest
+        build: .
         restart: unless-stopped
         ports:
             - 4321:4321

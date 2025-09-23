@@ -1,0 +1,22 @@
+---
+import Layout from "../../../layouts/Layout.astro";
+---
+
+<Layout>
+    <h1>chat</h1>
+    <p>something cool is coming soon...</p>
+</Layout>
+
+<!--
+plan
+
+shortened links will follow the format 3ln.me/xxxxxx#xxxxxxx
+
+where the first part is the id, and the second part is the optional decryption key
+
+id is a counter, using the chars 0-9, a-z, A-Z, -, _, ., ~ (66 chars total)
+
+decryption key is configurable length (or optional passphrase), using the same char set for autogen, or full utf-8 (url-encoded) for user-provided
+
+the id is the PK in the database allowing for O(log n) lookups of the smallest available id
+-->
