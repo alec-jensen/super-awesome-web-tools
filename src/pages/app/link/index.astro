@@ -4,5 +4,34 @@ import Layout from "../../../layouts/Layout.astro";
 
 <Layout>
     <h1>link shortener</h1>
-    <p>something cool is coming soon...</p>
+    <form id="shorten-form" action="/api/link/shorten" method="post">
+        <input type="text" name="url" placeholder="Enter your URL here" required />
+        <button type="submit">Shorten</button>
+    </form>
+    <div id="result" aria-live="polite" style="margin-top:1rem;font-family:monospace;"></div>
+
+    <script>
+        const form = document.getElementById('shorten-form');
+        const resultEl = document.getElementById('result');
+
+        if (form instanceof HTMLFormElement && resultEl) {
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                resultEl.textContent = 'Working...';
+                const formData = new FormData(form);
+                try {
+                    const res = await fetch(form.action, { method: 'POST', body: formData });
+                    const data = await res.json().catch(() => ({}));
+                    if (res.ok && data?.ok) {
+                        resultEl.innerHTML = `Short URL: <a href="${data.short}" target="_blank" rel="noopener noreferrer">${data.short}</a>`;
+                    } else {
+                        resultEl.textContent = data?.message || `Error (${res.status})`;
+                    }
+                } catch (err) {
+                    console.error(err);
+                    resultEl.textContent = 'Network error';
+                }
+            });
+        }
+    </script>
 </Layout>

@@ -1,0 +1,29 @@
+app:
+  baseUrl: https://example.com
+  logLevel: info
+
+features:
+  chat:
+    enabled: true
+    allow_anonymous: true
+  paste:
+    enabled: true
+    allow_anonymous: true
+    max_length: 100000
+  linkShortener:
+    enabled: true
+    allow_anonymous: true
+  uploads:
+    enabled: true
+    allow_anonymous: true
+    max_size: 10MB
+
+server:
+  port: 4321
+
+database:
+  host: localhost
+  port: 3306
+  user: super_awesome_web_tools
+  password: super_secure_password
+  database: super_awesome_web_tools
