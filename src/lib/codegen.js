@@ -7,10 +7,11 @@
 //
 // Alphabet comes from the existing endpoint; ensure we keep it centralized here.
 
-import { query, withConnection } from './db.js';
+import { query as realQuery, withConnection as realWithConnection } from './db.js';
 
-export const ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.~';
-const BASE = ALPHABET.length; // 66
+// these are all characters that can safely appear in url paths
+export const ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.~!$&\'()*+,;=@:';
+const BASE = ALPHABET.length;
 const MAX_LEN = 16; // matches short_code column size
 
 // Convert 0-based sequential index to code: produce minimal length representation.
@@ -40,28 +41,36 @@ export function indexToCode(index) {
   return chars.join('');
 }
 
+let _query = realQuery;
+let _withConnection = realWithConnection;
+
+export function _setDbForTests({ query, withConnection } = {}) {
+  if (query) _query = query;
+  if (withConnection) _withConnection = withConnection;
+}
+
 export async function ensureCodegenTables() {
-  await query(`CREATE TABLE IF NOT EXISTS code_state (
+  await _query(`CREATE TABLE IF NOT EXISTS code_state (
     id TINYINT PRIMARY KEY CHECK (id = 1),
     next_index BIGINT UNSIGNED NOT NULL
   ) ENGINE=InnoDB`);
-  await query(`CREATE TABLE IF NOT EXISTS recycled_codes (
+  await _query(`CREATE TABLE IF NOT EXISTS recycled_codes (
     short_code VARCHAR(16) PRIMARY KEY,
     code_length TINYINT NOT NULL,
     recycled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   ) ENGINE=InnoDB`);
   // Initialize state row if missing
-  await query(`INSERT IGNORE INTO code_state (id, next_index) VALUES (1, 0)`);
+  await _query(`INSERT IGNORE INTO code_state (id, next_index) VALUES (1, 0)`);
 }
 
 // Allocate next code; returns { code, reused:boolean }
 export async function allocateCode() {
   await ensureCodegenTables();
-  return withConnection(async (conn) => {
+  return _withConnection(async (conn) => {
     await conn.beginTransaction();
     try {
       // Attempt recycled first
-      const recycled = await conn.query('SELECT short_code FROM recycled_codes ORDER BY code_length ASC, short_code ASC LIMIT 1 FOR UPDATE');
+  const recycled = await conn.query('SELECT short_code FROM recycled_codes ORDER BY code_length ASC, short_code ASC LIMIT 1 FOR UPDATE');
       if (recycled.length > 0) {
         const code = recycled[0].short_code;
         await conn.query('DELETE FROM recycled_codes WHERE short_code = ?', [code]);
@@ -88,5 +97,5 @@ export async function allocateCode() {
 export async function recycleCode(code) {
   if (!code) return;
   await ensureCodegenTables();
-  await query('INSERT IGNORE INTO recycled_codes (short_code, code_length) VALUES (?, ?)', [code, code.length]);
+  await _query('INSERT IGNORE INTO recycled_codes (short_code, code_length) VALUES (?, ?)', [code, code.length]);
 }
