@@ -1,4 +1,4 @@
-FROM node:24.11.0-trixie-slim AS base
+FROM node:24.11.1-alpine3.22 AS base
 WORKDIR /app
 
 # By copying only the package.json and package-lock.json here, we ensure that the following `-deps` steps are independent of the source code.
