@@ -42,7 +42,7 @@ function loadFirstExisting() {
   for (const p of candidatePaths()) {
     if (fileExists(p)) return p;
   }
-  throw new Error('No configuration file found. Expected one of: ' + candidatePaths().join(', '));
+  return null;
 }
 
 // Convert human-readable size strings like 10MB, 512KB, 2G into bytes (number)
@@ -102,6 +102,26 @@ function applyEnvOverrides(cfg) {
   }
   if (process.env.LOG_LEVEL) cfg.app.logLevel = process.env.LOG_LEVEL;
   if (process.env.BASE_URL) cfg.app.baseUrl = process.env.BASE_URL;
+  if (process.env.APP_ENCRYPTION_KEY) cfg.app.encryptionKey = process.env.APP_ENCRYPTION_KEY;
+
+  // Database overrides
+  if (!cfg.database) cfg.database = {};
+  if (process.env.DB_HOST) cfg.database.host = process.env.DB_HOST;
+  if (process.env.DB_PORT) cfg.database.port = parseInt(process.env.DB_PORT, 10);
+  if (process.env.DB_USER) cfg.database.user = process.env.DB_USER;
+  if (process.env.DB_PASSWORD) cfg.database.password = process.env.DB_PASSWORD;
+  if (process.env.DB_NAME) cfg.database.database = process.env.DB_NAME;
+
+  // Feature defaults if missing (for env-only config)
+  if (!cfg.features) {
+    cfg.features = {
+      chat: { enabled: true, allow_anonymous: true },
+      paste: { enabled: true, allow_anonymous: true, max_length: 100000 },
+      linkShortener: { enabled: true, allow_anonymous: true, delete_unused_after_days: 90 },
+      uploads: { enabled: true, allow_anonymous: true, max_size: 10 * 1024 * 1024 }
+    };
+  }
+
   return cfg;
 }
 
@@ -116,8 +136,13 @@ function deepFreeze(obj) {
 
 function loadConfig() {
   const filePath = loadFirstExisting();
-  const raw = fs.readFileSync(filePath, 'utf8');
-  const parsed = parse(raw) || {};
+  let parsed = {};
+  
+  if (filePath) {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    parsed = parse(raw) || {};
+  }
+
   const transformed = transformObject(parsed);
   const overridden = applyEnvOverrides(transformed);
   // Validate & coerce defaults

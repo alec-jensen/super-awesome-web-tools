@@ -4,3 +4,27 @@ services:
         restart: unless-stopped
         ports:
             - 4321:4321
+        environment:
+            - DB_HOST=db
+            - DB_PORT=3306
+            - DB_USER=super_awesome_web_tools
+            - DB_PASSWORD=super_secure_password
+            - DB_NAME=super_awesome_web_tools
+            - APP_ENCRYPTION_KEY=CHANGE_ME_GENERATE_A_SECURE_KEY_AT_LEAST_32_CHARS
+            - BASE_URL=http://localhost:4321
+        depends_on:
+            - db
+
+    db:
+        image: mariadb:11
+        restart: unless-stopped
+        environment:
+            - MARIADB_ROOT_PASSWORD=root_password
+            - MARIADB_DATABASE=super_awesome_web_tools
+            - MARIADB_USER=super_awesome_web_tools
+            - MARIADB_PASSWORD=super_secure_password
+        volumes:
+            - db_data:/var/lib/mysql
+
+volumes:
+    db_data:

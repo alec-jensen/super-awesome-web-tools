@@ -84,7 +84,7 @@ if (user) {
 
         <div id="key-length-container" style="display: none;">
             <label for="key-length">Encryption Key Length:</label>
-            <input type="range" id="key-length" name="keyLength" min="112" max="256" value="128" step="16" />
+            <input type="range" id="key-length" name="keyLength" min="128" max="256" value="128" step="16" />
             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
                 <span id="key-length-value">128 bits</span>
                 <span id="security-indicator" style="font-weight: bold;">Good (Default)</span>
@@ -716,10 +716,6 @@ if (user) {
                 // AES-128: Current commercial standard
                 color = '#9ACD32'; // Yellow-green
                 text = 'Good (Default)';
-            } else if (lengthBits >= 112) {
-                // NIST minimum for new applications (equivalent to 2048-bit RSA)
-                color = '#FFA500'; // Orange
-                text = 'Moderate';
             } else if (lengthBits >= 80) {
                 // Deprecated for new use, only for legacy data
                 color = '#FF6347'; // Tomato

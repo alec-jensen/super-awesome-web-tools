@@ -340,19 +340,18 @@ try {
       const combined = base64urlToBytes(encryptedData);
       const IV_LENGTH = 16;
       const TAG_LENGTH = 16;
-
-      if (combined.length <= IV_LENGTH + TAG_LENGTH) {
-        throw new Error('Invalid encrypted data payload');
-      }
-
-      const iv = combined.slice(0, IV_LENGTH);
-      const authTag = combined.slice(IV_LENGTH, IV_LENGTH + TAG_LENGTH);
-      const ciphertext = combined.slice(IV_LENGTH + TAG_LENGTH);
+      const SALT_LENGTH = 16;
 
       const keyBytes = base64urlToBytes(base64Key);
-
       let cryptoKey;
+      let offset = 0;
+
       if (keyBytes.length === 32) {
+        // 256-bit key: IV + Tag + Ciphertext
+        if (combined.length <= IV_LENGTH + TAG_LENGTH) {
+          throw new Error('Invalid encrypted data payload');
+        }
+        
         cryptoKey = await crypto.subtle.importKey(
           'raw',
           keyBytes,
@@ -361,6 +360,14 @@ try {
           ['decrypt']
         );
       } else {
+        // Non-256-bit key: Salt + IV + Tag + Ciphertext
+        if (combined.length <= SALT_LENGTH + IV_LENGTH + TAG_LENGTH) {
+          throw new Error('Invalid encrypted data payload');
+        }
+
+        const salt = combined.slice(0, SALT_LENGTH);
+        offset = SALT_LENGTH;
+
         const keyMaterial = await crypto.subtle.importKey(
           'raw',
           keyBytes,
@@ -369,12 +376,11 @@ try {
           ['deriveKey']
         );
 
-        const salt = new TextEncoder().encode('url-encryption-salt');
         cryptoKey = await crypto.subtle.deriveKey(
           {
             name: 'PBKDF2',
             salt,
-            iterations: 100000,
+            iterations: 600000, // OWASP 2023 recommendation
             hash: 'SHA-256',
           },
           keyMaterial,
@@ -383,6 +389,10 @@ try {
           ['decrypt']
         );
       }
+
+      const iv = combined.slice(offset, offset + IV_LENGTH);
+      const authTag = combined.slice(offset + IV_LENGTH, offset + IV_LENGTH + TAG_LENGTH);
+      const ciphertext = combined.slice(offset + IV_LENGTH + TAG_LENGTH);
 
       const ciphertextWithTag = new Uint8Array(ciphertext.length + authTag.length);
       ciphertextWithTag.set(ciphertext);

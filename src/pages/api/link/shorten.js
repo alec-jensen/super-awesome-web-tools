@@ -51,7 +51,7 @@ export async function POST({ request, cookies, clientAddress }) {
       return new Response(JSON.stringify({ ok: false, message: "Invalid request" }), { status: 400 });
     }
 
-    if (keyLengthBits < 112 || keyLengthBits > 256) {
+    if (keyLengthBits < 128 || keyLengthBits > 256) {
       return new Response(JSON.stringify({ ok: false, message: "Invalid request" }), { status: 400 });
     }
 
