@@ -2,48 +2,449 @@
 import "../styles/global.css";
 
 import background from "../assets/background.svg";
+import Breadcrumb from "../components/Breadcrumb.astro";
+import { getConfig } from "../lib/config.js";
+import { getSessionUser } from "../lib/auth/session.js";
+
+const config = getConfig();
+const projectName = "super-awesome-web-tools";
+const repoUrl = "https://github.com/alec-jensen/super-awesome-web-tools";
+const footerLinks = config?.app?.footerLinks ?? {};
+const footerNav = [
+	{ label: "Privacy Policy", url: footerLinks.privacyPolicy },
+	{ label: "Terms of Service", url: footerLinks.termsOfService },
+	{ label: "Security Policy", url: footerLinks.securityPolicy },
+	{ label: "Legal", url: footerLinks.legal }
+].filter((link) => typeof link.url === "string" && link.url.length > 0);
+
+const isExternal = (url: string | undefined) => {
+	if (!url) {
+		return false;
+	}
+
+	try {
+		const parsed = new URL(url);
+		return parsed.origin !== Astro.site?.origin;
+	} catch {
+		return false;
+	}
+};
+
+const sessionUser = await getSessionUser(Astro.cookies);
 ---
 
 <!doctype html>
 <html lang="en">
 	<head>
-		<meta charset="UTF-8" />
-		<meta name="viewport" content="width=device-width" />
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 		<meta name="generator" content={Astro.generator} />
-		<title>Astro Basics</title>
 	</head>
 	<body>
 		<img id="background" src={background.src} alt="" fetchpriority="high" />
-		<div id="content">
-			<slot />
+		{sessionUser ? (
+			<div id="account-chip">
+				<button class="account-button" id="account-menu-toggle" type="button">
+					<div class="avatar">
+						{sessionUser.email.charAt(0).toUpperCase()}
+					</div>
+					<span class="email">{sessionUser.email}</span>
+					{sessionUser.role === 'admin' && (
+						<span class="role-badge">Admin</span>
+					)}
+					<svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+						<path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+					</svg>
+				</button>
+				<div class="account-menu" id="account-menu">
+					<a href="/app/account" class="menu-item">
+						<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+							<path d="M8 8C9.65685 8 11 6.65685 11 5C11 3.34315 9.65685 2 8 2C6.34315 2 5 3.34315 5 5C5 6.65685 6.34315 8 8 8Z" stroke="currentColor" stroke-width="1.5"/>
+							<path d="M3 14C3 11.7909 5.23858 10 8 10C10.7614 10 13 11.7909 13 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+						</svg>
+						Account Settings
+					</a>
+					{sessionUser.role === 'admin' && (
+						<a href="/app/admin" class="menu-item">
+							<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+								<path d="M6.5 1.5L3 5L6.5 8.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+								<path d="M8 6.5C9.38071 6.5 10.5 5.38071 10.5 4C10.5 2.61929 9.38071 1.5 8 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+								<path d="M8 9.5C6.61929 9.5 5.5 10.6193 5.5 12C5.5 13.3807 6.61929 14.5 8 14.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+								<path d="M9.5 7.5L13 11L9.5 14.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+							</svg>
+							Admin Panel
+						</a>
+					)}
+					<button class="menu-item" id="logout-btn" type="button">
+						<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+							<path d="M6 14H3C2.44772 14 2 13.5523 2 13V3C2 2.44772 2.44772 2 3 2H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+							<path d="M11 11L14 8L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+							<path d="M14 8H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+						</svg>
+						Sign Out
+					</button>
+				</div>
+			</div>
+		) : (
+			<div id="signin-chip">
+				<a href="/app/login" class="signin-button">
+					<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+						<path d="M6 14H3C2.44772 14 2 13.5523 2 13V3C2 2.44772 2.44772 2 3 2H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+						<path d="M11 11L14 8L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+						<path d="M14 8H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+					</svg>
+					<span>Sign In</span>
+				</a>
+			</div>
+		)}
+		<div id="layout">
+			<Breadcrumb />
+			<main id="content">
+				<slot />
+			</main>
+			<footer>
+				<a class="footer-link project" href={repoUrl} target="_blank" rel="noopener noreferrer">
+					{projectName}
+				</a>
+				{footerNav.map((link) => (
+					<a
+						class="footer-link"
+						href={link.url}
+						target={isExternal(link.url) ? "_blank" : undefined}
+						rel={isExternal(link.url) ? "noopener noreferrer" : undefined}
+					>
+						{link.label}
+					</a>
+				))}
+			</footer>
 		</div>
 	</body>
 </html>
 
 <style>
-	html,
-	body {
+	:global(body) {
 		margin: 0;
-		width: 100%;
+		min-height: 100vh;
+		font-family: var(--font-sans, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+		background: transparent;
+		display: flex;
+		flex-direction: column;
+	}
+
+	html {
 		height: 100%;
 	}
-	
+
 	#background {
 		position: fixed;
 		top: 0;
 		left: 0;
 		width: 100%;
 		height: 100%;
+		object-fit: cover;
+		pointer-events: none;
 		z-index: -1;
-		filter: blur(100px);
+		filter: blur(120px);
+		opacity: 0.8;
+	}
+
+	#account-chip {
+		position: fixed;
+		top: 1rem;
+		right: 1rem;
+		z-index: 999;
+	}
+
+	.account-button {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		background: rgba(255, 255, 255, 0.95);
+		border-radius: 24px;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+		text-decoration: none;
+		color: #333;
+		font-size: 0.875rem;
+		transition: all 0.2s;
+		backdrop-filter: blur(10px);
+		border: 1px solid rgba(0, 0, 0, 0.05);
+		max-width: 300px;
+		cursor: pointer;
+		font-family: inherit;
+	}
+
+	.account-button:hover {
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+		transform: translateY(-1px);
+		background: rgba(255, 255, 255, 1);
+	}
+
+	.chevron {
+		margin-left: auto;
+		transition: transform 0.2s;
+		opacity: 0.6;
+	}
+
+	#account-chip.open .chevron {
+		transform: rotate(180deg);
+	}
+
+	.account-menu {
+		position: absolute;
+		top: calc(100% + 0.5rem);
+		right: 0;
+		background: white;
+		border-radius: 8px;
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+		overflow: hidden;
+		opacity: 0;
+		visibility: hidden;
+		transform: translateY(-10px);
+		transition: all 0.2s;
+		min-width: 200px;
+		border: 1px solid rgba(0, 0, 0, 0.05);
+	}
+
+	#account-chip.open .account-menu {
+		opacity: 1;
+		visibility: visible;
+		transform: translateY(0);
+	}
+
+	.menu-item {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.75rem 1rem;
+		color: #333;
+		text-decoration: none;
+		transition: background 0.2s;
+		cursor: pointer;
+		border: none;
+		background: none;
+		width: 100%;
+		text-align: left;
+		font-size: 0.875rem;
+		font-family: inherit;
+	}
+
+	.menu-item:hover {
+		background: #f5f5f5;
+	}
+
+	.menu-item svg {
+		opacity: 0.6;
+		flex-shrink: 0;
+	}
+
+	.menu-item:not(:last-child) {
+		border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+	}
+
+	.avatar {
+		width: 32px;
+		height: 32px;
+		border-radius: 50%;
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		color: white;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-weight: 600;
+		font-size: 0.875rem;
+		flex-shrink: 0;
+	}
+
+	.email {
+		font-weight: 500;
+		color: #333;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.role-badge {
+		padding: 0.25rem 0.5rem;
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		color: white;
+		border-radius: 12px;
+		font-size: 0.75rem;
+		font-weight: 600;
+		flex-shrink: 0;
+	}
+
+	@media (max-width: 640px) {
+		#account-chip {
+			top: 0.5rem;
+			right: 0.5rem;
+		}
+
+		.account-button {
+			padding: 0.4rem 0.6rem;
+			gap: 0.4rem;
+		}
+
+		.email {
+			display: none;
+		}
+
+		.avatar {
+			width: 28px;
+			height: 28px;
+			font-size: 0.8rem;
+		}
+
+		.chevron {
+			margin-left: 0;
+		}
+	}
+
+	#signin-chip {
+		position: fixed;
+		top: 1rem;
+		right: 1rem;
+		z-index: 999;
+	}
+
+	.signin-button {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.6rem 1rem;
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		border-radius: 24px;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+		text-decoration: none;
+		color: white;
+		font-size: 0.875rem;
+		font-weight: 500;
+		transition: all 0.2s;
+		border: none;
+		cursor: pointer;
+	}
+
+	.signin-button:hover {
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+		transform: translateY(-1px);
+	}
+
+	.signin-button svg {
+		width: 16px;
+		height: 16px;
+	}
+
+	@media (max-width: 640px) {
+		#signin-chip {
+			top: 0.5rem;
+			right: 0.5rem;
+		}
+
+		.signin-button {
+			padding: 0.5rem 0.8rem;
+			gap: 0.4rem;
+			font-size: 0.8rem;
+		}
+	}
+
+	#layout {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		width: 100%;
+		box-sizing: border-box;
+		padding: 0 1.5rem;
 	}
 
 	#content {
+		flex: 1;
 		display: flex;
-		justify-content: center;
-		align-items: center;
-		height: 100%;
 		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		max-width: 960px;
+		margin: 0 auto;
+		padding: 2rem 0;
+		text-align: center;
+	}
+
+	footer {
+		margin: 1.5rem 0 2.5rem;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem 1.5rem;
+		justify-content: center;
+		font-size: 0.875rem;
+		opacity: 0.9;
+	}
+
+	.footer-link {
+		color: inherit;
+		text-decoration: none;
+		transition: opacity 0.2s ease;
+	}
+
+	.footer-link:hover,
+	.footer-link:focus-visible {
+		opacity: 0.7;
+		text-decoration: underline;
+	}
+
+	.footer-link.project {
+		font-weight: 600;
+	}
+
+	@media (max-width: 640px) {
+		#layout {
+			padding: 0 1rem;
+		}
+
+		#content {
+			padding: 1.5rem 0;
+		}
 	}
 </style>
+
+<script>
+	import { showAlert } from '../lib/modal.js';
+
+	// Account menu dropdown
+	const accountMenuToggle = document.getElementById('account-menu-toggle');
+	const accountChip = document.getElementById('account-chip');
+	const logoutBtn = document.getElementById('logout-btn');
+
+	if (accountMenuToggle && accountChip) {
+		accountMenuToggle.addEventListener('click', (e) => {
+			e.stopPropagation();
+			accountChip.classList.toggle('open');
+		});
+
+		// Close menu when clicking outside
+		document.addEventListener('click', (e) => {
+			if (accountChip && !accountChip.contains(e.target as Node)) {
+				accountChip.classList.remove('open');
+			}
+		});
+	}
+
+	// Logout functionality
+	if (logoutBtn) {
+		logoutBtn.addEventListener('click', async () => {
+			try {
+				const res = await fetch('/api/auth/logout', { method: 'POST' });
+				const data = await res.json().catch(() => ({}));
+				if (res.ok && data.ok) {
+					window.location.href = '/';
+				} else {
+					await showAlert('Failed to sign out. Please try again.', 'Error');
+				}
+			} catch (err) {
+				console.error('Logout error:', err);
+				await showAlert('Failed to sign out. Please try again.', 'Error');
+			}
+		});
+	}
+</script>

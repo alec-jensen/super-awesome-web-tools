@@ -44,6 +44,10 @@ async function fakeQuery(sql, params = []) {
     codeState.next_index += 1;
     return { affectedRows: 1 };
   }
+  if (sql.startsWith('UPDATE code_state SET next_index = ?')) {
+    codeState.next_index = params[0];
+    return { affectedRows: 1 };
+  }
   throw new Error('Unhandled SQL in fakeQuery: ' + sql);
 }
 

@@ -1,0 +1,143 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { getSessionUser } from '../../lib/auth/session.js';
+import { getConfig } from '../../lib/config.js';
+
+export const prerender = false;
+
+const user = await getSessionUser(Astro.cookies);
+if (user) {
+  return Astro.redirect('/app/link');
+}
+
+const config = getConfig();
+const passwordReqs = config.auth.password;
+---
+
+<Layout title="Create Account">
+  <section class="auth-container">
+    <h1>Create your account</h1>
+    <form id="register-form">
+      <label>
+        Email
+        <input type="email" name="email" required autocomplete="email" />
+      </label>
+      <label>
+        Password
+        <input type="password" name="password" required autocomplete="new-password" minlength={passwordReqs.minLength} />
+      </label>
+      <label>
+        Confirm Password
+        <input type="password" name="confirm" required autocomplete="new-password" minlength={passwordReqs.minLength} />
+      </label>
+      <p class="helper">
+        Password requirements:
+        <ul style="margin: 0.5rem 0 0 1.5rem; padding: 0;">
+          <li>At least {passwordReqs.minLength} characters</li>
+          {passwordReqs.requireUppercase && <li>At least one uppercase letter</li>}
+          {passwordReqs.requireLowercase && <li>At least one lowercase letter</li>}
+          {passwordReqs.requireNumber && <li>At least one number</li>}
+          {passwordReqs.requireSpecial && <li>At least one special character (!@#$%^&*(),.?":{}|&lt;&gt;)</li>}
+        </ul>
+      </p>
+      <button type="submit">Create Account</button>
+      <p class="helper">Already have an account? <a href="/app/login">Sign in</a>.</p>
+      <p id="register-error" class="error" role="alert" style="display:none;"></p>
+    </form>
+  </section>
+
+  <style>
+    .auth-container {
+      max-width: 400px;
+      margin: 0 auto;
+      padding: 2rem;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border: 1px solid #dee2e6;
+    }
+
+    form {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      font-weight: 600;
+      color: #333;
+    }
+
+    input {
+      margin-top: 0.35rem;
+      padding: 0.6rem;
+      font-size: 1rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+
+    button {
+      padding: 0.75rem;
+      font-size: 1rem;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #0056b3;
+    }
+
+    .helper {
+      font-size: 0.9rem;
+      color: #555;
+    }
+
+    .error {
+      color: #dc3545;
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+      padding: 0.75rem;
+      border-radius: 4px;
+    }
+  </style>
+
+  <script type="module">
+    const form = document.getElementById('register-form');
+    const errorEl = document.getElementById('register-error');
+
+    if (form instanceof HTMLFormElement && errorEl instanceof HTMLElement) {
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        errorEl.style.display = 'none';
+        const formData = new FormData(form);
+        const payload = Object.fromEntries(formData.entries());
+
+        if (payload.password !== payload.confirm) {
+          errorEl.textContent = 'Passwords do not match';
+          errorEl.style.display = 'block';
+          return;
+        }
+
+        try {
+          const res = await fetch('/api/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: payload.email, password: payload.password }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data?.ok) {
+            throw new Error(data?.message || 'Unable to create account');
+          }
+          window.location.href = '/app/link';
+        } catch (err) {
+          errorEl.textContent = err.message || 'Unexpected error';
+          errorEl.style.display = 'block';
+        }
+      });
+    }
+  </script>
+</Layout>

@@ -1,0 +1,411 @@
+---
+/**
+ * Reusable 2FA Verification Modal Component
+ * Handles TOTP and backup code verification with automatic method detection
+ */
+---
+
+<!-- 2FA Verification Modal -->
+<div id="2fa-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="2fa-modal-title">Two-Factor Authentication Required</h3>
+        </div>
+        <div class="modal-body">
+            <p id="2fa-modal-message">This action requires 2FA verification.</p>
+            
+            <!-- Method selection (shown if multiple methods available) -->
+            <div id="2fa-method-selection" style="display: none;">
+                <p><strong>Choose verification method:</strong></p>
+                <div class="form-group">
+                    <button type="button" class="button secondary" id="use-totp-btn" style="width: 100%; margin-bottom: 0.5rem; display: none;">Use Authenticator App</button>
+                    <button type="button" class="button secondary" id="use-email-btn" style="width: 100%; margin-bottom: 0.5rem; display: none;">Use Email Code</button>
+                    <button type="button" class="button secondary" id="use-backup-btn" style="width: 100%; margin-bottom: 0.5rem; display: none;">Use Backup Code</button>
+                </div>
+            </div>
+            
+            <!-- Code input form -->
+            <form id="2fa-modal-form" style="display: none;">
+                <div class="form-group">
+                    <label id="2fa-code-label">Enter Code:</label>
+                    <input 
+                        type="text" 
+                        id="2fa-modal-input" 
+                        placeholder="000000"
+                        required
+                        autocomplete="off"
+                    />
+                    <p id="2fa-help-text" style="font-size: 0.875rem; color: #6b7280; margin-top: 0.25rem;"></p>
+                </div>
+                <div id="2fa-modal-error" class="error" style="display: none; margin-bottom: 1rem;"></div>
+                <div class="modal-actions">
+                    <button type="button" class="button secondary" id="2fa-modal-back">Back</button>
+                    <button type="button" class="button secondary" id="2fa-modal-cancel">Cancel</button>
+                    <button type="submit" class="button primary">Verify</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+    .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 1000;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .modal.show {
+        display: flex;
+    }
+
+    .modal-content {
+        background: white;
+        border-radius: 8px;
+        max-width: 500px;
+        width: 90%;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .modal-header {
+        padding: 1.5rem;
+        border-bottom: 1px solid #e5e7eb;
+    }
+
+    .modal-header h3 {
+        margin: 0;
+        font-size: 1.25rem;
+        color: #111827;
+    }
+
+    .modal-body {
+        padding: 1.5rem;
+    }
+
+    .modal-body p {
+        margin-top: 0;
+        color: #6b7280;
+    }
+
+    .modal-actions {
+        display: flex;
+        gap: 0.75rem;
+        justify-content: flex-end;
+        margin-top: 1.5rem;
+    }
+
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+        color: #374151;
+    }
+
+    .form-group input {
+        width: 100%;
+        padding: 0.5rem;
+        border: 1px solid #d1d5db;
+        border-radius: 4px;
+        font-size: 1rem;
+    }
+
+    .form-group input:focus {
+        outline: none;
+        border-color: #3245ff;
+        box-shadow: 0 0 0 3px rgba(50, 69, 255, 0.1);
+    }
+
+    .error {
+        color: #dc2626;
+        background: #fee;
+        padding: 0.75rem;
+        border-radius: 4px;
+        font-size: 0.875rem;
+    }
+
+    .button {
+        padding: 0.5rem 1rem;
+        border: none;
+        border-radius: 4px;
+        font-size: 1rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .button.primary {
+        background: #3245ff;
+        color: white;
+    }
+
+    .button.primary:hover {
+        background: #2939cc;
+    }
+
+    .button.secondary {
+        background: #e5e7eb;
+        color: #374151;
+    }
+
+    .button.secondary:hover {
+        background: #d1d5db;
+    }
+</style>
+
+<script>
+    interface TwoFactorStatus {
+        totpEnabled: boolean;
+        emailEnabled: boolean;
+        backupCodesRemaining: number;
+        email: string;
+    }
+
+    // Global function to show 2FA modal
+    declare global {
+        interface Window {
+            show2FAModal: (title?: string, message?: string) => Promise<string>;
+            current2FAStatus: TwoFactorStatus | null;
+        }
+    }
+
+    window.current2FAStatus = null;
+
+    window.show2FAModal = async function(
+        title = 'Two-Factor Authentication Required',
+        message = 'This action requires two-factor authentication.'
+    ): Promise<string> {
+        return new Promise(async (resolve, reject) => {
+            const modal = document.getElementById('2fa-modal');
+            const modalTitle = document.getElementById('2fa-modal-title');
+            const modalMessage = document.getElementById('2fa-modal-message');
+            const methodSelection = document.getElementById('2fa-method-selection');
+            const form = document.getElementById('2fa-modal-form') as HTMLFormElement;
+            const input = document.getElementById('2fa-modal-input') as HTMLInputElement;
+            const codeLabel = document.getElementById('2fa-code-label');
+            const helpText = document.getElementById('2fa-help-text');
+            const errorDiv = document.getElementById('2fa-modal-error');
+            const backBtn = document.getElementById('2fa-modal-back');
+            const cancelBtn = document.getElementById('2fa-modal-cancel');
+            const useTotpBtn = document.getElementById('use-totp-btn');
+            const useEmailBtn = document.getElementById('use-email-btn');
+            const useBackupBtn = document.getElementById('use-backup-btn');
+
+            if (!modal || !form || !input) {
+                reject(new Error('2FA Modal not found'));
+                return;
+            }
+
+            // Get current 2FA status if not already loaded
+            if (!window.current2FAStatus) {
+                try {
+                    const response = await fetch('/api/auth/2fa/status');
+                    const data = await response.json();
+                    if (data.ok) {
+                        window.current2FAStatus = data;
+                    }
+                } catch (err) {
+                    reject(new Error('Failed to load 2FA status'));
+                    return;
+                }
+            }
+
+            const hasTOTP = window.current2FAStatus!.totpEnabled;
+            const hasEmail = window.current2FAStatus!.emailEnabled;
+            const hasBackupCodes = window.current2FAStatus!.backupCodesRemaining > 0;
+            
+            const methodCount = (hasTOTP ? 1 : 0) + (hasEmail ? 1 : 0) + (hasBackupCodes ? 1 : 0);
+
+            // Set title and message
+            if (modalTitle) modalTitle.textContent = title;
+            if (modalMessage) modalMessage.textContent = message;
+
+            // Reset
+            form.reset();
+            if (errorDiv) errorDiv.style.display = 'none';
+
+            // Show modal
+            modal.classList.add('show');
+
+            let selectedMethod: 'totp' | 'email' | 'backup' | null = null;
+
+            // If multiple methods, show selection
+            if (methodCount > 1) {
+                if (methodSelection) methodSelection.style.display = 'block';
+                form.style.display = 'none';
+                
+                // Show only available method buttons
+                if (useTotpBtn) useTotpBtn.style.display = hasTOTP ? 'block' : 'none';
+                if (useEmailBtn) useEmailBtn.style.display = hasEmail ? 'block' : 'none';
+                if (useBackupBtn) useBackupBtn.style.display = hasBackupCodes ? 'block' : 'none';
+            } else {
+                // Auto-select the only available method
+                if (methodSelection) methodSelection.style.display = 'none';
+                selectedMethod = hasTOTP ? 'totp' : (hasEmail ? 'email' : 'backup');
+                showCodeInput(selectedMethod);
+            }
+
+            function showCodeInput(method: 'totp' | 'email' | 'backup') {
+                selectedMethod = method;
+                if (methodSelection) methodSelection.style.display = 'none';
+                form.style.display = 'block';
+
+                if (method === 'totp') {
+                    if (input) {
+                        input.placeholder = '000000';
+                        input.maxLength = 6;
+                        input.pattern = '[0-9]{6}';
+                    }
+                    if (codeLabel) codeLabel.textContent = 'Enter authenticator code:';
+                    if (helpText) helpText.textContent = 'Enter the 6-digit code from your authenticator app';
+                } else if (method === 'email') {
+                    if (input) {
+                        input.placeholder = '000000';
+                        input.maxLength = 6;
+                        input.pattern = '[0-9]{6}';
+                    }
+                    if (codeLabel) codeLabel.textContent = 'Enter email code:';
+                    if (helpText) helpText.textContent = 'A code has been sent to your email. Check your inbox and enter the 6-digit code.';
+                    
+                    // Auto-send email code when selecting this method
+                    sendEmailCode();
+                } else {
+                    if (input) {
+                        input.placeholder = 'XXXXXXXX';
+                        input.maxLength = 8;
+                        input.pattern = '[A-Za-z0-9]{8}';
+                    }
+                    if (codeLabel) codeLabel.textContent = 'Enter backup code:';
+                    if (helpText) helpText.textContent = 'Enter one of your 8-character backup codes';
+                }
+
+                setTimeout(() => input?.focus(), 100);
+            }
+            
+            // Send email code
+            async function sendEmailCode() {
+                try {
+                    await fetch('/api/auth/2fa/email/send-code', { method: 'POST' });
+                    if (helpText) {
+                        helpText.innerHTML = 'Code sent! Check your email and enter the 6-digit code. <a href="#" id="resend-email-code" style="color: #3245ff;">Resend code</a>';
+                        const resendLink = document.getElementById('resend-email-code');
+                        resendLink?.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            sendEmailCode();
+                        });
+                    }
+                } catch (err) {
+                    if (helpText) {
+                        helpText.textContent = 'Failed to send code. Please try again.';
+                    }
+                }
+            }
+
+            // Method selection handlers
+            const handleUseTOTP = () => showCodeInput('totp');
+            const handleUseEmail = () => showCodeInput('email');
+            const handleUseBackup = () => showCodeInput('backup');
+            
+            useTotpBtn?.addEventListener('click', handleUseTOTP, { once: true });
+            useEmailBtn?.addEventListener('click', handleUseEmail, { once: true });
+            useBackupBtn?.addEventListener('click', handleUseBackup, { once: true });
+
+            // Handle form submission
+            const handleSubmit = async (e: Event) => {
+                e.preventDefault();
+                const code = input.value.trim();
+
+                if (!code) return;
+
+                if (errorDiv) errorDiv.style.display = 'none';
+
+                try {
+                    // Verify the 2FA code
+                    const response = await fetch('/api/auth/2fa/verify', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            email: window.current2FAStatus!.email || '',
+                            code: code,
+                            isBackupCode: selectedMethod === 'backup',
+                            isEmailCode: selectedMethod === 'email'
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.ok) {
+                        closeModal();
+                        resolve(code);
+                    } else {
+                        if (errorDiv) {
+                            errorDiv.textContent = data.message || 'Invalid code';
+                            errorDiv.style.display = 'block';
+                        }
+                        input.value = '';
+                        input.focus();
+                    }
+                } catch (err) {
+                    if (errorDiv) {
+                        errorDiv.textContent = 'An error occurred. Please try again.';
+                        errorDiv.style.display = 'block';
+                    }
+                }
+            };
+
+            // Handle back
+            const handleBack = () => {
+                form.style.display = 'none';
+                if (methodSelection) methodSelection.style.display = 'block';
+                form.reset();
+                if (errorDiv) errorDiv.style.display = 'none';
+            };
+
+            // Handle cancel
+            const handleCancel = () => {
+                closeModal();
+                reject(new Error('Cancelled'));
+            };
+
+            // Handle escape key
+            const handleEscape = (e: KeyboardEvent) => {
+                if (e.key === 'Escape') {
+                    handleCancel();
+                }
+            };
+
+            // Close modal helper
+            const closeModal = () => {
+                modal.classList.remove('show');
+                form.removeEventListener('submit', handleSubmit);
+                backBtn?.removeEventListener('click', handleBack);
+                cancelBtn?.removeEventListener('click', handleCancel);
+                document.removeEventListener('keydown', handleEscape);
+            };
+
+            // Attach event listeners
+            form.addEventListener('submit', handleSubmit);
+            backBtn?.addEventListener('click', handleBack);
+            cancelBtn?.addEventListener('click', handleCancel);
+            document.addEventListener('keydown', handleEscape);
+
+            // Close on backdrop click
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    handleCancel();
+                }
+            });
+        });
+    };
+</script>

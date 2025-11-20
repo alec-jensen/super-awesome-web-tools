@@ -1,0 +1,1605 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import TwoFactorModal from "../../components/TwoFactorModal.astro";
+import { getSessionUser } from "../../lib/auth/session.js";
+
+export const prerender = false;
+
+const user = await getSessionUser(Astro.cookies);
+
+if (!user) {
+    return Astro.redirect('/app/login');
+}
+---
+
+<Layout>
+    <h1>Account Settings</h1>
+
+    <div class="account-container">
+        <section class="account-section">
+            <h2>Profile Information</h2>
+            <div class="info-row">
+                <span class="label">Email:</span>
+                <span class="value">{user.email}</span>
+            </div>
+            <div class="info-row">
+                <span class="label">Role:</span>
+                <span class="value role-badge" data-role={user.role}>{user.role}</span>
+            </div>
+            <div class="info-row">
+                <span class="label">Email Verified:</span>
+                <span class="value">{user.emailVerified ? '✓ Yes' : '✗ No'}</span>
+            </div>
+            <div class="info-row">
+                <span class="label">Account Created:</span>
+                <span class="value">{new Date(user.createdAt).toLocaleString()}</span>
+            </div>
+            {user.lastLoginAt && (
+                <div class="info-row">
+                    <span class="label">Last Login:</span>
+                    <span class="value">{new Date(user.lastLoginAt).toLocaleString()}</span>
+                </div>
+            )}
+        </section>
+
+        <section class="account-section">
+            <h2>Change Email</h2>
+            <form id="change-email-form">
+                <div class="form-group">
+                    <label for="new-email">New Email Address:</label>
+                    <input 
+                        type="email" 
+                        id="new-email" 
+                        name="email" 
+                        placeholder="new@example.com"
+                        required 
+                    />
+                </div>
+                <button type="submit" class="button primary">Update Email</button>
+                <div id="email-result" class="result-message"></div>
+            </form>
+        </section>
+
+        <section class="account-section">
+            <h2>Change Password</h2>
+            <form id="change-password-form">
+                <div class="form-group">
+                    <label for="current-password">Current Password:</label>
+                    <input 
+                        type="password" 
+                        id="current-password" 
+                        name="currentPassword" 
+                        required 
+                    />
+                </div>
+                <div class="form-group">
+                    <label for="new-password">New Password:</label>
+                    <input 
+                        type="password" 
+                        id="new-password" 
+                        name="newPassword" 
+                        required 
+                    />
+                </div>
+                <div class="form-group">
+                    <label for="confirm-password">Confirm New Password:</label>
+                    <input 
+                        type="password" 
+                        id="confirm-password" 
+                        name="confirmPassword" 
+                        required 
+                    />
+                </div>
+                <button type="submit" class="button primary">Change Password</button>
+                <div id="password-result" class="result-message"></div>
+            </form>
+        </section>
+
+        <section class="account-section">
+            <h2>Two-Factor Authentication (2FA)</h2>
+            <p class="section-description">
+                Add an extra layer of security to your account with two-factor authentication.
+            </p>
+            
+            <div id="2fa-status" class="loading">Loading 2FA status...</div>
+            
+            <!-- Email 2FA Section -->
+            <div class="2fa-method">
+                <h3>Email Verification</h3>
+                <p class="section-description">
+                    Receive a verification code via email when logging in or performing sensitive actions.
+                </p>
+                <div id="email-2fa-status"></div>
+            </div>
+            
+            <div id="2fa-content" style="display: none;">
+                <!-- TOTP Section -->
+                <div class="2fa-method">
+                    <h3>Authenticator App (TOTP)</h3>
+                    <div id="totp-status"></div>
+                    <div id="totp-setup" style="display: none;">
+                        <p><strong>Scan this QR code with your authenticator app:</strong></p>
+                        <div id="qr-code" style="text-align: center; margin: 1rem 0;"></div>
+                        
+                        <p><strong>Or use this link:</strong></p>
+                        <p style="word-break: break-all; background: #f3f4f6; padding: 0.75rem; border-radius: 4px; font-family: monospace; font-size: 0.875rem;">
+                            <a id="totp-link" href="#" target="_blank" style="color: #2563eb;"></a>
+                        </p>
+                        
+                        <p><strong>Or enter this secret manually:</strong></p>
+                        <p style="background: #f3f4f6; padding: 0.75rem; border-radius: 4px; text-align: center;">
+                            <code id="totp-secret" style="font-size: 1.125rem; font-weight: 600; letter-spacing: 0.05em;"></code>
+                            <button type="button" id="copy-secret-btn" class="button secondary" style="margin-left: 0.5rem; padding: 0.25rem 0.75rem; font-size: 0.875rem;">Copy</button>
+                        </p>
+                        
+                        <form id="enable-totp-form">
+                            <div class="form-group">
+                                <label for="totp-code">Verify Code:</label>
+                                <input 
+                                    type="text" 
+                                    id="totp-code" 
+                                    name="code" 
+                                    placeholder="000000"
+                                    maxlength="6"
+                                    pattern="[0-9]{6}"
+                                    required 
+                                />
+                            </div>
+                            <button type="submit" class="button primary">Enable TOTP</button>
+                            <button type="button" id="cancel-totp-setup" class="button secondary">Cancel</button>
+                        </form>
+                    </div>
+                    <div id="backup-codes-display" style="display: none;">
+                        <h4>⚠️ Save Your Backup Codes</h4>
+                        <p class="warning-text">Store these codes in a safe place. Each code can only be used once.</p>
+                        <div id="backup-codes-list"></div>
+                        <button id="backup-codes-done" class="button primary">I've Saved My Codes</button>
+                    </div>
+                </div>
+                
+                <!-- Passkeys Section -->
+                <div class="2fa-method">
+                    <h3>Passkeys</h3>
+                    <p class="section-description">
+                        Passkeys use your device's biometric authentication (fingerprint, face ID) or PIN for secure, passwordless login.
+                    </p>
+                    
+                    <div id="passkeys-list"></div>
+                    
+                    <div id="add-passkey-section" style="margin-top: 1rem;">
+                        <button id="add-passkey-btn" class="button primary">Add Passkey</button>
+                    </div>
+                    
+                    <div id="passkey-setup" style="display: none; margin-top: 1rem;">
+                        <form id="passkey-name-form">
+                            <div class="form-group">
+                                <label for="passkey-name">Device Name:</label>
+                                <input 
+                                    type="text" 
+                                    id="passkey-name" 
+                                    name="name" 
+                                    placeholder="e.g., iPhone 13, Windows PC"
+                                    required 
+                                />
+                            </div>
+                            <button type="submit" class="button primary">Continue</button>
+                            <button type="button" id="cancel-passkey-setup" class="button secondary">Cancel</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Backup Codes Section (moved to bottom) -->
+                <div class="2fa-method" id="backup-codes-section" style="display: none;">
+                    <h3>Backup Codes</h3>
+                    <p id="backup-codes-info"></p>
+                    <button id="regenerate-backup-codes" class="button secondary">Regenerate Backup Codes</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="account-section danger-zone">
+            <h2>Delete Account</h2>
+            <p class="warning-text">
+                ⚠️ This action cannot be undone. All your data will be permanently deleted.
+            </p>
+            <form id="delete-account-form">
+                <div class="form-group">
+                    <label for="delete-password">Enter your password to confirm:</label>
+                    <input 
+                        type="password" 
+                        id="delete-password" 
+                        name="password" 
+                        required 
+                    />
+                </div>
+                <div class="form-group">
+                    <label for="delete-confirmation">Type "DELETE" to confirm:</label>
+                    <input 
+                        type="text" 
+                        id="delete-confirmation" 
+                        name="confirmation" 
+                        placeholder="DELETE"
+                        required 
+                    />
+                </div>
+                <button type="submit" class="button danger">Delete My Account</button>
+                <div id="delete-result" class="result-message"></div>
+            </form>
+        </section>
+    </div>
+
+    <!-- Password Modal -->
+    <div id="password-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="password-modal-title">Enter Password</h3>
+            </div>
+            <div class="modal-body">
+                <p id="password-modal-message">Please enter your password to continue.</p>
+                <form id="password-modal-form">
+                    <div class="form-group">
+                        <input 
+                            type="password" 
+                            id="password-modal-input" 
+                            placeholder="Enter your password"
+                            required
+                            autocomplete="current-password"
+                        />
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="button secondary" id="password-modal-cancel">Cancel</button>
+                        <button type="submit" class="button primary">Confirm</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2FA Verification Modal Component -->
+    <TwoFactorModal />
+</Layout>
+
+<style is:global>
+    .breadcrumb {
+        margin-bottom: 2rem;
+    }
+
+    .breadcrumb a {
+        color: #3245ff;
+        text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .breadcrumb .separator {
+        margin: 0 0.5rem;
+        color: #999;
+    }
+
+    h1 {
+        font-size: 2rem;
+        margin-bottom: 2rem;
+    }
+
+    .account-container {
+        max-width: 800px;
+        margin: 0 auto;
+    }
+
+    .account-section {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 2rem;
+        margin-bottom: 2rem;
+    }
+
+    .account-section h2 {
+        margin-top: 0;
+        margin-bottom: 1.5rem;
+        font-size: 1.5rem;
+        color: #111827;
+    }
+
+    .info-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.75rem 0;
+        border-bottom: 1px solid #f3f4f6;
+    }
+
+    .info-row:last-child {
+        border-bottom: none;
+    }
+
+    .label {
+        font-weight: 600;
+        color: #6b7280;
+    }
+
+    .value {
+        color: #111827;
+    }
+
+    .role-badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 4px;
+        font-size: 0.875rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .role-badge[data-role="admin"] {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .role-badge[data-role="user"] {
+        background: #dbeafe;
+        color: #1e40af;
+    }
+
+    .form-group {
+        margin-bottom: 1.5rem;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+        color: #374151;
+    }
+
+    .form-group input {
+        width: 100%;
+        padding: 0.75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 1rem;
+    }
+
+    .form-group input:focus {
+        outline: none;
+        border-color: #3245ff;
+        box-shadow: 0 0 0 3px rgba(50, 69, 255, 0.1);
+    }
+
+    .button {
+        padding: 0.75rem 1.5rem;
+        border: none;
+        border-radius: 6px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .button.primary {
+        background: linear-gradient(83.21deg, #3245ff 0%, #bc52ee 100%);
+        color: white;
+    }
+
+    .button.primary:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(50, 69, 255, 0.4);
+    }
+
+    .button.primary:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 6px rgba(50, 69, 255, 0.3);
+    }
+
+    .button.secondary {
+        background: white;
+        color: #667eea;
+        border: 2px solid #667eea;
+    }
+
+    .button.secondary:hover {
+        background: #f5f7ff;
+        border-color: #5568d3;
+        transform: translateY(-1px);
+    }
+
+    .button.secondary:active {
+        transform: translateY(0);
+        background: #eef0ff;
+    }
+
+    .button.danger {
+        background: #dc2626;
+        color: white;
+    }
+
+    .button.danger:hover {
+        background: #b91c1c;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
+    }
+
+    .button.danger:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 6px rgba(220, 38, 38, 0.3);
+    }
+
+    .danger-zone {
+        border-color: #fca5a5;
+        background: #fef2f2;
+    }
+
+    .warning-text {
+        color: #dc2626;
+        font-weight: 600;
+        margin-bottom: 1.5rem;
+    }
+
+    .result-message {
+        margin-top: 1rem;
+        padding: 0.75rem;
+        border-radius: 6px;
+        display: none;
+    }
+
+    .result-message.success {
+        display: block;
+        background: #d1fae5;
+        color: #065f46;
+        border: 1px solid #6ee7b7;
+    }
+
+    .result-message.error {
+        display: block;
+        background: #fee2e2;
+        color: #991b1b;
+        border: 1px solid #fca5a5;
+    }
+
+    /* 2FA Styles */
+    .section-description {
+        color: #6b7280;
+        margin-bottom: 1.5rem;
+    }
+
+    .2fa-method {
+        padding: 1.5rem;
+        background: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        margin-bottom: 1rem;
+    }
+
+    .2fa-method h3 {
+        margin-top: 0;
+        margin-bottom: 1rem;
+        font-size: 1.125rem;
+    }
+
+    #qr-code {
+        margin: 1rem 0;
+        padding: 1rem;
+        background: white;
+        border: 2px solid #e5e7eb;
+        border-radius: 8px;
+        display: inline-block;
+    }
+
+    .secret-text {
+        font-size: 0.875rem;
+        color: #6b7280;
+    }
+
+    .secret-text code {
+        background: white;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-family: monospace;
+        color: #111827;
+    }
+
+    #backup-codes-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 0.5rem;
+        margin: 1rem 0;
+        padding: 1rem;
+        background: white;
+        border-radius: 6px;
+    }
+
+    .backup-code {
+        font-family: monospace;
+        font-size: 1rem;
+        padding: 0.5rem;
+        background: #f3f4f6;
+        border-radius: 4px;
+        text-align: center;
+    }
+
+    .loading {
+        color: #6b7280;
+        font-style: italic;
+    }
+
+    .passkey-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem;
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        margin-bottom: 0.75rem;
+    }
+
+    .passkey-info {
+        flex: 1;
+    }
+
+    .passkey-name {
+        font-weight: 600;
+        color: #111827;
+        margin-bottom: 0.25rem;
+    }
+
+    .passkey-meta {
+        font-size: 0.875rem;
+        color: #6b7280;
+    }
+
+    .passkey-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .button.small {
+        padding: 0.5rem 1rem;
+        font-size: 0.875rem;
+    }
+
+    .button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .button:disabled:hover {
+        transform: none;
+        box-shadow: none;
+    }
+
+    .no-passkeys {
+        color: #6b7280;
+        font-style: italic;
+        padding: 1rem 0;
+    }
+
+    /* Password Modal */
+    .modal {
+        display: none;
+        position: fixed;
+        z-index: 1000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        animation: fadeIn 0.2s ease-in-out;
+    }
+
+    .modal.show {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+        }
+        to {
+            opacity: 1;
+        }
+    }
+
+    .modal-content {
+        background: white;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 450px;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        animation: slideUp 0.3s ease-out;
+    }
+
+    @keyframes slideUp {
+        from {
+            transform: translateY(20px);
+            opacity: 0;
+        }
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+
+    .modal-header {
+        padding: 1.5rem 1.5rem 1rem 1.5rem;
+        border-bottom: 1px solid #e5e7eb;
+    }
+
+    .modal-header h3 {
+        margin: 0;
+        font-size: 1.25rem;
+        color: #111827;
+    }
+
+    .modal-body {
+        padding: 1.5rem;
+    }
+
+    .modal-body p {
+        margin: 0 0 1.5rem 0;
+        color: #6b7280;
+        font-size: 0.95rem;
+    }
+
+    .modal-actions {
+        display: flex;
+        gap: 0.75rem;
+        justify-content: flex-end;
+        margin-top: 1.5rem;
+    }
+
+    #password-modal-input {
+        width: 100%;
+        padding: 0.75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 1rem;
+    }
+
+    #password-modal-input:focus {
+        outline: none;
+        border-color: #3245ff;
+        box-shadow: 0 0 0 3px rgba(50, 69, 255, 0.1);
+    }
+</style>
+
+<!-- QRCode.js library for generating QR codes -->
+<script is:inline src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+<script>
+    import { showAlert, showConfirm } from '../../lib/modal.js';
+
+    // Password Modal Helper
+    function showPasswordModal(title = 'Enter Password', message = 'Please enter your password to continue.'): Promise<string> {
+        return new Promise((resolve, reject) => {
+            const modal = document.getElementById('password-modal');
+            const modalTitle = document.getElementById('password-modal-title');
+            const modalMessage = document.getElementById('password-modal-message');
+            const form = document.getElementById('password-modal-form') as HTMLFormElement;
+            const input = document.getElementById('password-modal-input') as HTMLInputElement;
+            const cancelBtn = document.getElementById('password-modal-cancel');
+
+            if (!modal || !form || !input) {
+                reject(new Error('Modal not found'));
+                return;
+            }
+
+            // Set title and message
+            if (modalTitle) modalTitle.textContent = title;
+            if (modalMessage) modalMessage.textContent = message;
+
+            // Reset form
+            form.reset();
+            
+            // Show modal
+            modal.classList.add('show');
+            
+            // Focus input
+            setTimeout(() => input.focus(), 100);
+
+            // Handle form submission
+            const handleSubmit = (e: Event) => {
+                e.preventDefault();
+                const password = input.value;
+                closeModal();
+                resolve(password);
+            };
+
+            // Handle cancel
+            const handleCancel = () => {
+                closeModal();
+                reject(new Error('Cancelled'));
+            };
+
+            // Handle escape key
+            const handleEscape = (e: KeyboardEvent) => {
+                if (e.key === 'Escape') {
+                    handleCancel();
+                }
+            };
+
+            // Close modal helper
+            const closeModal = () => {
+                modal.classList.remove('show');
+                form.removeEventListener('submit', handleSubmit);
+                cancelBtn?.removeEventListener('click', handleCancel);
+                document.removeEventListener('keydown', handleEscape);
+            };
+
+            // Attach event listeners
+            form.addEventListener('submit', handleSubmit);
+            cancelBtn?.addEventListener('click', handleCancel);
+            document.addEventListener('keydown', handleEscape);
+
+            // Close on backdrop click
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    handleCancel();
+                }
+            });
+        });
+    }
+
+    // Change Email
+    const emailForm = document.getElementById('change-email-form') as HTMLFormElement;
+    const emailResult = document.getElementById('email-result') as HTMLDivElement;
+
+    emailForm?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(emailForm);
+        const email = formData.get('email');
+
+        emailResult.className = 'result-message';
+        emailResult.textContent = '';
+
+        try {
+            // Check if 2FA is required
+            if (window.current2FAStatus && (window.current2FAStatus.totpEnabled || window.current2FAStatus.emailEnabled || window.current2FAStatus.backupCodesRemaining > 0)) {
+                try {
+                    await window.show2FAModal('Verify 2FA to Change Email', 'For security, please verify your identity with 2FA before changing your email.');
+                } catch (err) {
+                    // User cancelled
+                    return;
+                }
+            }
+
+            const response = await fetch('/api/account/change-email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email }),
+            });
+
+            const data = await response.json();
+
+            if (data.ok) {
+                emailResult.className = 'result-message success';
+                emailResult.textContent = data.message;
+                emailForm.reset();
+                
+                // Reload page after 2 seconds to show new email
+                setTimeout(() => window.location.reload(), 2000);
+            } else {
+                emailResult.className = 'result-message error';
+                emailResult.textContent = data.message || 'Failed to update email';
+            }
+        } catch (err) {
+            emailResult.className = 'result-message error';
+            emailResult.textContent = 'An error occurred. Please try again.';
+        }
+    });
+
+    // Change Password
+    const passwordForm = document.getElementById('change-password-form') as HTMLFormElement;
+    const passwordResult = document.getElementById('password-result') as HTMLDivElement;
+
+    passwordForm?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(passwordForm);
+        const currentPassword = formData.get('currentPassword');
+        const newPassword = formData.get('newPassword');
+        const confirmPassword = formData.get('confirmPassword');
+
+        passwordResult.className = 'result-message';
+        passwordResult.textContent = '';
+
+        if (newPassword !== confirmPassword) {
+            passwordResult.className = 'result-message error';
+            passwordResult.textContent = 'New passwords do not match';
+            return;
+        }
+
+        try {
+            // Check if 2FA is required
+            if (window.current2FAStatus && (window.current2FAStatus.totpEnabled || window.current2FAStatus.emailEnabled || window.current2FAStatus.backupCodesRemaining > 0)) {
+                try {
+                    await window.show2FAModal('Verify 2FA to Change Password', 'For security, please verify your identity with 2FA before changing your password.');
+                } catch (err) {
+                    // User cancelled
+                    return;
+                }
+            }
+
+            const response = await fetch('/api/account/change-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ currentPassword, newPassword }),
+            });
+
+            const data = await response.json();
+
+            if (data.ok) {
+                passwordResult.className = 'result-message success';
+                passwordResult.textContent = data.message;
+                passwordForm.reset();
+            } else {
+                passwordResult.className = 'result-message error';
+                passwordResult.textContent = data.message || 'Failed to change password';
+            }
+        } catch (err) {
+            passwordResult.className = 'result-message error';
+            passwordResult.textContent = 'An error occurred. Please try again.';
+        }
+    });
+
+    // Delete Account
+    const deleteForm = document.getElementById('delete-account-form') as HTMLFormElement;
+    const deleteResult = document.getElementById('delete-result') as HTMLDivElement;
+
+    deleteForm?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const confirmed = await showConfirm(
+            'Are you absolutely sure you want to delete your account? This action cannot be undone!',
+            'Delete Account'
+        );
+        
+        if (!confirmed) {
+            return;
+        }
+
+        const formData = new FormData(deleteForm);
+        const password = formData.get('password');
+        const confirmation = formData.get('confirmation');
+
+        deleteResult.className = 'result-message';
+        deleteResult.textContent = '';
+
+        try {
+            // Check if 2FA is required
+            if (window.current2FAStatus && (window.current2FAStatus.totpEnabled || window.current2FAStatus.emailEnabled || window.current2FAStatus.backupCodesRemaining > 0)) {
+                try {
+                    await window.show2FAModal('Verify 2FA to Delete Account', 'For security, please verify your identity with 2FA before deleting your account.');
+                } catch (err) {
+                    // User cancelled
+                    return;
+                }
+            }
+
+            const response = await fetch('/api/account/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password, confirmation }),
+            });
+
+            const data = await response.json();
+
+            if (data.ok) {
+                deleteResult.className = 'result-message success';
+                deleteResult.textContent = data.message + ' Redirecting...';
+                
+                // Redirect to home after 2 seconds
+                setTimeout(() => window.location.href = '/', 2000);
+            } else {
+                deleteResult.className = 'result-message error';
+                deleteResult.textContent = data.message || 'Failed to delete account';
+            }
+        } catch (err) {
+            deleteResult.className = 'result-message error';
+            deleteResult.textContent = 'An error occurred. Please try again.';
+        }
+    });
+
+    // 2FA Management
+    async function load2FAStatus() {
+        const statusEl = document.getElementById('2fa-status');
+        const contentEl = document.getElementById('2fa-content');
+        
+        try {
+            const response = await fetch('/api/auth/2fa/status');
+            const data = await response.json();
+            
+            if (data.ok) {
+                // Store globally for 2FA verification modal
+                window.current2FAStatus = data;
+                
+                if (statusEl) statusEl.style.display = 'none';
+                if (contentEl) contentEl.style.display = 'block';
+                
+                update2FADisplay(data);
+            }
+        } catch (err) {
+            if (statusEl) statusEl.textContent = 'Failed to load 2FA status';
+        }
+    }
+
+    function update2FADisplay(status: any) {
+        const totpStatus = document.getElementById('totp-status');
+        const email2FAStatus = document.getElementById('email-2fa-status');
+        const backupCodesSection = document.getElementById('backup-codes-section');
+        const backupCodesInfo = document.getElementById('backup-codes-info');
+        const passkeySection = document.getElementById('passkey-section');
+        
+        if (totpStatus) {
+            if (status.totpEnabled) {
+                totpStatus.innerHTML = `
+                    <p style="color: #059669; font-weight: 600;">✓ TOTP is enabled</p>
+                    <button id="disable-totp-btn" class="button danger">Disable TOTP</button>
+                `;
+                
+                // Show backup codes section
+                if (backupCodesSection) backupCodesSection.style.display = 'block';
+                if (backupCodesInfo) {
+                    backupCodesInfo.textContent = `You have ${status.backupCodesRemaining} backup codes remaining.`;
+                }
+            } else {
+                totpStatus.innerHTML = `
+                    <p>TOTP is not enabled</p>
+                    <button id="setup-totp-btn" class="button primary">Setup TOTP</button>
+                `;
+            }
+        }
+        
+        // Email 2FA status
+        if (email2FAStatus) {
+            if (status.emailEnabled) {
+                email2FAStatus.innerHTML = `
+                    <p style="color: #059669; font-weight: 600;">✓ Email 2FA is enabled</p>
+                    <button id="disable-email-2fa-btn" class="button danger">Disable Email 2FA</button>
+                `;
+            } else {
+                email2FAStatus.innerHTML = `
+                    <p>Email 2FA is not enabled</p>
+                    <button id="enable-email-2fa-btn" class="button primary">Enable Email 2FA</button>
+                `;
+            }
+        }
+        
+        // Update 2FA overall status display
+        const has2FA = status.totpEnabled || status.emailEnabled || status.passkeyCount > 0;
+        const methods = [];
+        if (status.totpEnabled) methods.push('TOTP');
+        if (status.emailEnabled) methods.push('Email');
+        if (status.passkeyCount > 0) methods.push(status.passkeyCount + ' passkey(s)');
+        const statusText = has2FA 
+            ? `Two-factor authentication is enabled (${methods.join(' + ')})`
+            : 'Two-factor authentication is not enabled';
+        
+        // You can add a general 2FA status indicator if needed
+        
+        attachTOTPHandlers(status);
+    }
+
+    function attachTOTPHandlers(status: any) {
+        const setupBtn = document.getElementById('setup-totp-btn');
+        const disableBtn = document.getElementById('disable-totp-btn');
+        const regenerateBtn = document.getElementById('regenerate-backup-codes');
+        
+        setupBtn?.addEventListener('click', async () => {
+            try {
+                const password = await showPasswordModal('Setup TOTP', 'Enter your password to continue setting up TOTP authentication.');
+                
+                // First try without 2FA
+                let response = await fetch('/api/auth/2fa/totp/setup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                
+                let data = await response.json();
+                
+                // If 2FA is required, prompt for it
+                if (!data.ok && data.requires2FA) {
+                    const twoFactorCode = await window.show2FAModal(
+                        'Setup TOTP',
+                        'Verify with your existing 2FA method to setup TOTP:'
+                    ).catch(() => null);
+                    
+                    if (!twoFactorCode) return;
+                    
+                    // Try again with 2FA code
+                    response = await fetch('/api/auth/2fa/totp/setup', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ password, twoFactorCode })
+                    });
+                    
+                    data = await response.json();
+                }
+                
+                if (data.ok) {
+                    showTOTPSetup(data.secret, data.qrCodeURL);
+                } else {
+                    await showAlert(data.message || 'Failed to setup TOTP', 'Setup Error');
+                }
+            } catch (err) {
+                if (err instanceof Error && err.message !== 'Cancelled') {
+                    await showAlert('An error occurred', 'Error');
+                }
+            }
+        });
+        
+        disableBtn?.addEventListener('click', async () => {
+            const confirmed = await showConfirm('Are you sure you want to disable TOTP?', 'Disable TOTP');
+            if (!confirmed) return;
+            
+            try {
+                const password = await showPasswordModal('Disable TOTP', 'Enter your password to confirm disabling TOTP authentication.');
+                
+                // First try without 2FA
+                let response = await fetch('/api/auth/2fa/totp/disable', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                
+                let data = await response.json();
+                
+                // If 2FA is required, prompt for it
+                if (!data.ok && data.requires2FA) {
+                    const twoFactorCode = await window.show2FAModal(
+                        'Disable TOTP',
+                        'Verify with your 2FA method to disable TOTP:'
+                    ).catch(() => null);
+                    
+                    if (!twoFactorCode) return;
+                    
+                    // Try again with 2FA code
+                    response = await fetch('/api/auth/2fa/totp/disable', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ password, twoFactorCode })
+                    });
+                    
+                    data = await response.json();
+                }
+                
+                if (data.ok) {
+                    await showAlert('TOTP disabled successfully', 'Success');
+                    load2FAStatus();
+                } else {
+                    await showAlert(data.message || 'Failed to disable TOTP', 'Error');
+                }
+            } catch (err) {
+                if (err instanceof Error && err.message !== 'Cancelled') {
+                    await showAlert('An error occurred', 'Error');
+                }
+            }
+        });
+        
+        regenerateBtn?.addEventListener('click', async () => {
+            const confirmed = await showConfirm('This will invalidate all existing backup codes. Continue?', 'Regenerate Backup Codes');
+            if (!confirmed) return;
+            
+            try {
+                const password = await showPasswordModal('Regenerate Backup Codes', 'Enter your password to generate new backup codes.');
+                
+                // First try without 2FA
+                let response = await fetch('/api/auth/2fa/backup-codes/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                
+                let data = await response.json();
+                
+                // If 2FA is required, prompt for it
+                if (!data.ok && data.requires2FA) {
+                    const twoFactorCode = await window.show2FAModal(
+                        'Regenerate Backup Codes',
+                        'Verify with your 2FA method to regenerate backup codes:'
+                    ).catch(() => null);
+                    
+                    if (!twoFactorCode) return;
+                    
+                    // Try again with 2FA code
+                    response = await fetch('/api/auth/2fa/backup-codes/generate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ password, twoFactorCode })
+                    });
+                    
+                    data = await response.json();
+                }
+                
+                if (data.ok) {
+                    displayBackupCodes(data.backupCodes);
+                } else {
+                    await showAlert(data.message || 'Failed to generate backup codes', 'Error');
+                }
+            } catch (err) {
+                if (err instanceof Error && err.message !== 'Cancelled') {
+                    await showAlert('An error occurred', 'Error');
+                }
+            }
+        });
+    }
+
+    function showTOTPSetup(secret: string, qrCodeURL: string) {
+        const setupDiv = document.getElementById('totp-setup');
+        const totpStatus = document.getElementById('totp-status');
+        const qrCode = document.getElementById('qr-code');
+        const secretEl = document.getElementById('totp-secret');
+        const linkEl = document.getElementById('totp-link');
+        const copyBtn = document.getElementById('copy-secret-btn');
+        
+        if (totpStatus) totpStatus.style.display = 'none';
+        if (setupDiv) setupDiv.style.display = 'block';
+        if (secretEl) secretEl.textContent = secret;
+        if (linkEl instanceof HTMLAnchorElement) {
+            linkEl.href = qrCodeURL;
+            linkEl.textContent = qrCodeURL;
+        }
+        
+        // Generate QR code using QRCode.js (will load from CDN)
+        if (qrCode) {
+            qrCode.innerHTML = '';
+            // @ts-ignore - QRCode is loaded from CDN
+            if (typeof QRCode !== 'undefined') {
+                // @ts-ignore - QRCode is loaded from CDN
+                new QRCode(qrCode, {
+                    text: qrCodeURL,
+                    width: 256,
+                    height: 256,
+                    colorDark: '#000000',
+                    colorLight: '#ffffff',
+                    // @ts-ignore - QRCode is loaded from CDN
+                    correctLevel: QRCode.CorrectLevel.H
+                });
+            } else {
+                // Fallback if QRCode library not loaded
+                qrCode.innerHTML = `<p style="color: #dc2626;">QR code library not loaded. Please use the link or secret above.</p>`;
+            }
+        }
+        
+        // Copy secret to clipboard
+        copyBtn?.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(secret);
+                const originalText = copyBtn.textContent;
+                copyBtn.textContent = 'Copied!';
+                setTimeout(() => {
+                    copyBtn.textContent = originalText;
+                }, 2000);
+            } catch (err) {
+                await showAlert('Failed to copy to clipboard', 'Error');
+            }
+        });
+        
+        const form = document.getElementById('enable-totp-form') as HTMLFormElement;
+        const cancelBtn = document.getElementById('cancel-totp-setup');
+        
+        form?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(form);
+            const code = formData.get('code') as string;
+            
+            try {
+                const response = await fetch('/api/auth/2fa/totp/enable', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code })
+                });
+                
+                const data = await response.json();
+                
+                if (data.ok) {
+                    if (setupDiv) setupDiv.style.display = 'none';
+                    displayBackupCodes(data.backupCodes);
+                } else {
+                    await showAlert(data.message || 'Invalid code', 'Error');
+                }
+            } catch (err) {
+                await showAlert('An error occurred', 'Error');
+            }
+        });
+        
+        cancelBtn?.addEventListener('click', () => {
+            if (setupDiv) setupDiv.style.display = 'none';
+            if (totpStatus) totpStatus.style.display = 'block';
+        });
+    }
+
+    function displayBackupCodes(codes: string[]) {
+        const displayDiv = document.getElementById('backup-codes-display');
+        const list = document.getElementById('backup-codes-list');
+        
+        if (displayDiv) displayDiv.style.display = 'block';
+        
+        if (list) {
+            list.innerHTML = codes.map(code => 
+                `<div class="backup-code">${code}</div>`
+            ).join('');
+        }
+        
+        const doneBtn = document.getElementById('backup-codes-done');
+        doneBtn?.addEventListener('click', () => {
+            if (displayDiv) displayDiv.style.display = 'none';
+            load2FAStatus();
+        });
+    }
+    
+    // Email 2FA Management
+    document.addEventListener('click', async (e) => {
+        const target = e.target as HTMLElement;
+        
+        // Enable Email 2FA
+        if (target.id === 'enable-email-2fa-btn') {
+            const password = await showPasswordModal(
+                'Enable Email 2FA',
+                'Enter your password to enable email two-factor authentication:'
+            ).catch(() => null);
+            
+            if (!password) return;
+            
+            try {
+                // First try without 2FA
+                let response = await fetch('/api/auth/2fa/email/enable', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                
+                let data = await response.json();
+                
+                // If 2FA is required, prompt for it
+                if (!data.ok && data.requires2FA) {
+                    const twoFactorCode = await window.show2FAModal(
+                        'Enable Email 2FA',
+                        'Verify with your existing 2FA method to enable email 2FA:'
+                    ).catch(() => null);
+                    
+                    if (!twoFactorCode) return;
+                    
+                    // Try again with 2FA code
+                    response = await fetch('/api/auth/2fa/email/enable', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ password, twoFactorCode })
+                    });
+                    
+                    data = await response.json();
+                }
+                
+                if (data.ok) {
+                    await showAlert(data.message || 'Email 2FA enabled successfully', 'Success');
+                    load2FAStatus();
+                } else {
+                    await showAlert(data.message || 'Failed to enable email 2FA', 'Error');
+                }
+            } catch (err) {
+                await showAlert('An error occurred while enabling email 2FA', 'Error');
+            }
+        }
+        
+        // Disable Email 2FA
+        if (target.id === 'disable-email-2fa-btn') {
+            const confirmed = await showConfirm('Are you sure you want to disable email 2FA?', 'Disable Email 2FA');
+            if (!confirmed) return;
+            
+            const password = await showPasswordModal(
+                'Disable Email 2FA',
+                'Enter your password to disable email two-factor authentication:'
+            ).catch(() => null);
+            
+            if (!password) return;
+            
+            try {
+                // First try without 2FA
+                let response = await fetch('/api/auth/2fa/email/disable', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                
+                let data = await response.json();
+                
+                // If 2FA is required, prompt for it
+                if (!data.ok && data.requires2FA) {
+                    const twoFactorCode = await window.show2FAModal(
+                        'Disable Email 2FA',
+                        'Verify with your existing 2FA method to disable email 2FA:'
+                    ).catch(() => null);
+                    
+                    if (!twoFactorCode) return;
+                    
+                    // Try again with 2FA code
+                    response = await fetch('/api/auth/2fa/email/disable', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ password, twoFactorCode })
+                    });
+                    
+                    data = await response.json();
+                }
+                
+                if (data.ok) {
+                    await showAlert(data.message || 'Email 2FA disabled successfully', 'Success');
+                    load2FAStatus();
+                } else {
+                    await showAlert(data.message || 'Failed to disable email 2FA', 'Error');
+                }
+            } catch (err) {
+                await showAlert('An error occurred while disabling email 2FA', 'Error');
+            }
+        }
+    });
+
+    // Passkey Management
+    async function loadPasskeys() {
+        try {
+            const response = await fetch('/api/auth/2fa/passkey/list');
+            const data = await response.json();
+            
+            if (response.ok) {
+                displayPasskeys(data.passkeys);
+            }
+        } catch (err) {
+            console.error('Failed to load passkeys:', err);
+        }
+    }
+
+    function displayPasskeys(passkeys: any[]) {
+        const list = document.getElementById('passkeys-list');
+        
+        if (!list) return;
+        
+        if (passkeys.length === 0) {
+            list.innerHTML = '<p class="no-passkeys">No passkeys added yet.</p>';
+            return;
+        }
+        
+        list.innerHTML = passkeys.map(pk => {
+            const createdDate = new Date(pk.createdAt).toLocaleDateString();
+            const lastUsed = pk.lastUsedAt 
+                ? `Last used: ${new Date(pk.lastUsedAt).toLocaleDateString()}`
+                : 'Never used';
+            
+            return `
+                <div class="passkey-item">
+                    <div class="passkey-info">
+                        <div class="passkey-name">${escapeHtml(pk.deviceName)}</div>
+                        <div class="passkey-meta">Added ${createdDate} • ${lastUsed}</div>
+                    </div>
+                    <div class="passkey-actions">
+                        <button class="button danger small delete-passkey-btn" data-id="${pk.id}">
+                            Remove
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        // Add event listeners to delete buttons
+        document.querySelectorAll('.delete-passkey-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const target = e.target as HTMLButtonElement;
+                const passkeyId = target.dataset.id;
+                if (passkeyId) {
+                    await handleDeletePasskey(passkeyId);
+                }
+            });
+        });
+    }
+
+    function escapeHtml(text: string): string {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    async function handleDeletePasskey(passkeyId: string) {
+        const confirmed = await showConfirm('Are you sure you want to remove this passkey?', 'Remove Passkey');
+        if (!confirmed) {
+            return;
+        }
+        
+        try {
+            const password = await showPasswordModal('Delete Passkey', 'Enter your password to confirm passkey deletion.');
+            
+            // First try without 2FA
+            let response = await fetch('/api/auth/2fa/passkey/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ passkeyId, password })
+            });
+            
+            let data = await response.json();
+            
+            // If 2FA is required, prompt for it
+            if (!data.success && data.requires2FA) {
+                const twoFactorCode = await window.show2FAModal(
+                    'Delete Passkey',
+                    'Verify with your 2FA method to delete this passkey:'
+                ).catch(() => null);
+                
+                if (!twoFactorCode) return;
+                
+                // Try again with 2FA code
+                response = await fetch('/api/auth/2fa/passkey/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ passkeyId, password, twoFactorCode })
+                });
+                
+                data = await response.json();
+            }
+            
+            if (data.success) {
+                await loadPasskeys();
+                await load2FAStatus();
+            } else {
+                await showAlert(data.error || 'Failed to delete passkey', 'Error');
+            }
+        } catch (err) {
+            if (err instanceof Error && err.message !== 'Cancelled') {
+                await showAlert('An error occurred while deleting the passkey', 'Error');
+            }
+        }
+    }
+
+    // Passkey registration flow
+    const addPasskeyBtn = document.getElementById('add-passkey-btn');
+    const passkeySetup = document.getElementById('passkey-setup');
+    const passkeyNameForm = document.getElementById('passkey-name-form') as HTMLFormElement;
+    const cancelPasskeyBtn = document.getElementById('cancel-passkey-setup');
+
+    addPasskeyBtn?.addEventListener('click', () => {
+        if (passkeySetup) passkeySetup.style.display = 'block';
+    });
+
+    cancelPasskeyBtn?.addEventListener('click', () => {
+        if (passkeySetup) passkeySetup.style.display = 'none';
+        passkeyNameForm?.reset();
+    });
+
+    passkeyNameForm?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const nameInput = document.getElementById('passkey-name') as HTMLInputElement;
+        const deviceName = nameInput?.value.trim();
+        
+        if (!deviceName) {
+            await showAlert('Please enter a device name', 'Required');
+            return;
+        }
+
+        // Check browser support
+        if (!window.PublicKeyCredential) {
+            await showAlert('Your browser does not support passkeys. Please use a modern browser like Chrome, Safari, or Edge.', 'Unsupported Browser');
+            return;
+        }
+
+        try {
+            const password = await showPasswordModal('Add Passkey', 'Enter your password to confirm adding a new passkey.');
+
+            // Step 1: Get registration challenge
+            let challengeResponse = await fetch('/api/auth/2fa/passkey/register-challenge', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password })
+            });
+            
+            let challengeData = await challengeResponse.json();
+            
+            // If 2FA is required, prompt for it
+            if (!challengeResponse.ok && challengeData.requires2FA) {
+                const twoFactorCode = await window.show2FAModal(
+                    'Add Passkey',
+                    'Verify with your 2FA method to add a new passkey:'
+                ).catch(() => null);
+                
+                if (!twoFactorCode) return;
+                
+                // Try again with 2FA code
+                challengeResponse = await fetch('/api/auth/2fa/passkey/register-challenge', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password, twoFactorCode })
+                });
+                
+                challengeData = await challengeResponse.json();
+            }
+            
+            if (!challengeResponse.ok) {
+                await showAlert(challengeData.error || 'Failed to start passkey registration', 'Error');
+                return;
+            }
+
+            // Step 2: Create credential using WebAuthn
+            const options = challengeData.options;
+            
+            // Convert challenge and user ID from base64url to ArrayBuffer
+            options.challenge = base64urlToArrayBuffer(options.challenge);
+            options.user.id = base64urlToArrayBuffer(options.user.id);
+            
+            const credential = await navigator.credentials.create({
+                publicKey: options
+            }) as PublicKeyCredential;
+
+            if (!credential) {
+                await showAlert('Failed to create passkey', 'Error');
+                return;
+            }
+
+            // Step 3: Send credential to server
+            const response = credential.response as AuthenticatorAttestationResponse;
+            const credentialData = {
+                id: credential.id,
+                rawId: arrayBufferToBase64url(credential.rawId),
+                type: credential.type,
+                response: {
+                    clientDataJSON: arrayBufferToBase64url(response.clientDataJSON),
+                    attestationObject: arrayBufferToBase64url(response.attestationObject)
+                }
+            };
+
+            const registerResponse = await fetch('/api/auth/2fa/passkey/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ credential: credentialData, deviceName })
+            });
+            
+            const registerData = await registerResponse.json();
+            
+            if (registerData.success) {
+                if (passkeySetup) passkeySetup.style.display = 'none';
+                passkeyNameForm?.reset();
+                await loadPasskeys();
+                await load2FAStatus();
+            } else {
+                await showAlert(registerData.error || 'Failed to register passkey', 'Error');
+            }
+
+        } catch (err: any) {
+            console.error('Passkey registration error:', err);
+            if (err.message === 'Cancelled') {
+                // User cancelled the password modal, do nothing
+                return;
+            } else if (err.name === 'NotAllowedError') {
+                await showAlert('Passkey registration was cancelled or timed out', 'Cancelled');
+            } else {
+                await showAlert('An error occurred during passkey registration: ' + err.message, 'Error');
+            }
+        }
+    });
+
+    // Helper functions for WebAuthn base64url encoding
+    function base64urlToArrayBuffer(base64url: string): ArrayBuffer {
+        const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+        const padLength = (4 - (base64.length % 4)) % 4;
+        const padded = base64 + '='.repeat(padLength);
+        const binary = atob(padded);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+        }
+        return bytes.buffer;
+    }
+
+    function arrayBufferToBase64url(buffer: ArrayBuffer): string {
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        const base64 = btoa(binary);
+        return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    }
+
+    // Load 2FA status and passkeys on page load
+    load2FAStatus();
+    loadPasskeys();
+</script>
+

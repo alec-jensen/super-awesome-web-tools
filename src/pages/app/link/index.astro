@@ -1,37 +1,1034 @@
 ---
 import Layout from "../../../layouts/Layout.astro";
+import { getSessionUser } from "../../../lib/auth/session.js";
+import { ensureShortLinksExtended } from "../../../lib/rateLimit.js";
+import { query } from "../../../lib/db.js";
+import { getConfig } from "../../../lib/config.js";
+import { getValidateUrlScript } from "../../../lib/urlValidation.js";
+
+export const prerender = false;
+
+const SECURITY_LABELS: Record<string, string> = {
+    plaintext: 'Plaintext',
+    encryptedAndDecryptionKeyInURL: 'Encrypted',
+    encrypted: 'Encrypted',
+};
+
+function securityLabelFor(mode: string): string {
+    return SECURITY_LABELS[mode] ?? 'Unknown';
+}
+
+const user = await getSessionUser(Astro.cookies);
+let managedLinks = [];
+let baseUrl = "";
+
+if (user) {
+    await ensureShortLinksExtended();
+    const config = getConfig();
+    baseUrl = config?.app?.baseUrl?.replace(/\/+$/, '') || '';
+    /** @type {Array<Record<string, any>>} */
+    const rows = await query(
+        `SELECT short_code, created_at, last_accessed, usage_count, security_mode, is_encrypted
+         FROM short_links
+         WHERE user_id = ?
+         ORDER BY created_at DESC
+         LIMIT 200`,
+        [user.id]
+    );
+    managedLinks = [];
+    for (const rawRow of rows) {
+        const row = /** @type {Record<string, any>} */ (rawRow);
+        const createdAtIso = row.created_at instanceof Date ? row.created_at.toISOString() : new Date(row.created_at).toISOString();
+        const lastAccessedIso = row.last_accessed ? (row.last_accessed instanceof Date ? row.last_accessed.toISOString() : new Date(row.last_accessed).toISOString()) : null;
+        managedLinks.push({
+            code: row.short_code,
+            short: baseUrl ? `${baseUrl}/${row.short_code}` : `/${row.short_code}`,
+            createdAtIso,
+            createdAtDisplay: new Date(createdAtIso).toLocaleString(),
+            lastAccessedIso,
+            lastAccessedDisplay: lastAccessedIso ? new Date(lastAccessedIso).toLocaleString() : 'Never',
+            usageCount: Number(row.usage_count || 0),
+            securityMode: row.security_mode,
+            securityLabel: securityLabelFor(row.security_mode),
+            isEncrypted: !!row.is_encrypted,
+        });
+    }
+}
 ---
 
 <Layout>
     <h1>link shortener</h1>
-    <form id="shorten-form" action="/api/link/shorten" method="post">
+    <form id="shorten-form">
         <input type="text" name="url" placeholder="Enter your URL here" required />
+        
+        <fieldset>
+            <legend>Security:</legend>
+            <div class="radio-group">
+                <input type="radio" id="plaintext" name="security" value="plaintext" checked />
+                <label for="plaintext">Plaintext (not private but shorter link)</label>
+                <span class="info-icon" title="The URL is stored as-is without encryption. Anyone with access to the database can see the original URL. This creates the shortest possible links.">?</span>
+            </div>
+            <div class="radio-group">
+                <input type="radio" id="encryptedAndDecryptionKeyInURL" name="security" value="encryptedAndDecryptionKeyInURL" />
+                <label for="encryptedAndDecryptionKeyInURL">Encrypted (decryption key in URL)</label>
+                <span class="info-icon" title="The URL is encrypted and stored securely. The decryption key is included in the short link itself, so anyone with the link can access the URL, but it's protected in the database. This option gives the longest links, the longer the key, the longer the link.">?</span>
+            </div>
+            <div class="radio-group">
+                <input type="radio" id="encrypted" name="security" value="encrypted" />
+                <label for="encrypted">Encrypted (decryption key not in URL)</label>
+                <span class="info-icon" title="The URL is encrypted and the decryption key is NOT included in the short link. You must provide the key separately to access the URL. This is the most secure option, but also the least convenient. This option gives links the same length as the plaintext option.">?</span>
+            </div>
+        </fieldset>
+
+        <a href="/app/link/security">Detailed Security Information</a>
+
+        <div id="key-length-container" style="display: none;">
+            <label for="key-length">Encryption Key Length:</label>
+            <input type="range" id="key-length" name="keyLength" min="112" max="256" value="128" step="16" />
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+                <span id="key-length-value">128 bits</span>
+                <span id="security-indicator" style="font-weight: bold;">Good (Default)</span>
+            </div>
+            <div id="key-length-warning" style="display: none; margin-top: 0.75rem; padding: 0.75rem; background: #fff3cd; border: 2px solid #ffc107; border-radius: 4px;">
+                <strong style="color: #856404;">⚠️ Non-Standard Key Length</strong>
+                <p style="margin: 0.25rem 0 0 0; font-size: 13px; color: #856404;">
+                    This key length is not an officially supported AES standard (128, 192, or 256 bits) and may have vulnerabilities. For maximum security, please use 128, 192, or 256 bits.
+                </p>
+            </div>
+            <div style="margin-top: 0.5rem; font-size: 12px; color: #666;">
+                Based on NIST SP 800-57 recommendations. Officially supported AES key lengths are 128, 192, and 256 bits.
+            </div>
+        </div>
+        
         <button type="submit">Shorten</button>
     </form>
     <div id="result" aria-live="polite" style="margin-top:1rem;font-family:monospace;"></div>
 
-    <script>
+    {user && (
+        <section class="link-management" id="link-management">
+            <h2>Manage your short links</h2>
+            <p class="management-subtitle">These links are private to your account. Only you can see and delete them.</p>
+            <div id="manage-status" class="error" role="alert" style="display:none;"></div>
+            <p id="manage-empty" class="empty-state" style={managedLinks.length ? "display:none;" : "display:block;"}>
+                You haven't created any links while signed in yet.
+            </p>
+            <div class="table-wrapper" data-table-container style={managedLinks.length ? "display:block;" : "display:none;"}>
+                <table class="link-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Short URL</th>
+                            <th scope="col">Security</th>
+                            <th scope="col">Visits</th>
+                            <th scope="col">Created</th>
+                            <th scope="col">Last Used</th>
+                            <th scope="col" class="actions-col">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody data-link-rows>
+                        {managedLinks.map((link) => (
+                            <tr data-code={link.code}>
+                                <td data-label="Short URL"><a href={link.short} target="_blank" rel="noopener noreferrer">{link.short}</a></td>
+                                <td data-label="Security">{link.securityLabel || securityLabelFor(link.securityMode)}</td>
+                                <td data-label="Visits">{link.usageCount}</td>
+                                <td data-label="Created"><time datetime={link.createdAtIso}>{link.createdAtDisplay}</time></td>
+                                <td data-label="Last Used">{link.lastAccessedIso ? <time datetime={link.lastAccessedIso}>{link.lastAccessedDisplay}</time> : <span class="never">Never</span>}</td>
+                                <td class="actions">
+                                    <button type="button" class="danger" data-action="delete-link" data-code={link.code}>Delete</button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    )}
+
+    <style>
+        #shorten-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            max-width: 500px;
+        }
+
+        .auth-status {
+            margin: 1rem 0 2rem 0;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: center;
+            justify-content: space-between;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 1rem 1.25rem;
+        }
+
+        .auth-status strong {
+            font-weight: 700;
+        }
+
+        .auth-status form {
+            margin: 0;
+        }
+
+        .auth-actions {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.6rem 1.1rem;
+            border-radius: 4px;
+            font-weight: 600;
+            text-decoration: none;
+            border: none;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .button.primary {
+            background: #007bff;
+            color: white;
+        }
+
+        .button.primary:hover {
+            background: #0056b3;
+        }
+
+        .button.secondary {
+            background: #e9ecef;
+            color: #1b1e21;
+        }
+
+        .button.secondary:hover {
+            background: #d3d9df;
+        }
+
+        #shorten-form input[type="text"] {
+            padding: 0.5rem;
+            font-size: 1rem;
+        }
+
+        fieldset {
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 1rem;
+        }
+
+        legend {
+            padding: 0 0.5rem;
+            font-weight: bold;
+        }
+
+        .radio-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .radio-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .radio-group input[type="radio"] {
+            margin: 0;
+            cursor: pointer;
+        }
+
+        .radio-group label {
+            cursor: pointer;
+            margin: 0;
+        }
+
+        .info-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background-color: #007bff;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: help;
+            margin-left: 0.25rem;
+            flex-shrink: 0;
+        }
+
+        .info-icon:hover {
+            background-color: #0056b3;
+        }
+
+        #shorten-form button[type="submit"] {
+            padding: 0.75rem 1.5rem;
+            font-size: 1rem;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+
+        #shorten-form button[type="submit"]:hover {
+            background-color: #0056b3;
+        }
+
+        #key-length-container {
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 4px;
+            border: 1px solid #dee2e6;
+        }
+
+        #key-length-container label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: bold;
+        }
+
+        #key-length {
+            width: 100%;
+            cursor: pointer;
+        }
+
+        #key-length-value {
+            font-size: 14px;
+            color: #666;
+        }
+
+        #security-indicator {
+            font-size: 14px;
+            transition: color 0.3s ease;
+        }
+
+        .link-management {
+            margin-top: 3rem;
+            padding: 1.5rem;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            background: #ffffff;
+        }
+
+        .link-management h2 {
+            margin: 0 0 0.5rem 0;
+            font-size: 1.5rem;
+        }
+
+        .management-subtitle {
+            margin: 0 0 1.5rem 0;
+            color: #555;
+        }
+
+        .empty-state {
+            margin: 1rem 0;
+            color: #666;
+            font-style: italic;
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+        }
+
+        .link-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .link-table th,
+        .link-table td {
+            padding: 1rem;
+            border-bottom: 1px solid #e6e6e6;
+            text-align: left;
+        }
+
+        .link-table th {
+            background: #f1f3f5;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .link-table td a {
+            color: #007bff;
+            word-break: break-all;
+        }
+
+        .link-table td a:hover {
+            text-decoration: underline;
+        }
+
+        .link-table .never {
+            color: #6c757d;
+            font-style: italic;
+            opacity: 0.8;
+        }
+
+        .actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .actions-col {
+            width: 120px;
+        }
+
+        .actions button {
+            padding: 0.5rem 0.9rem;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .actions button.danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .actions button.danger:hover {
+            background: #b52a37;
+        }
+
+        @media (max-width: 700px) {
+            .link-table thead {
+                display: none;
+            }
+
+            .link-table tr {
+                display: block;
+                border: 1px solid #e6e6e6;
+                border-radius: 6px;
+                margin-bottom: 1rem;
+                padding: 0.75rem;
+            }
+
+            .link-table td {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                border-bottom: none;
+                padding: 0.4rem 0;
+            }
+
+            .link-table td::before {
+                content: attr(data-label);
+                font-weight: 600;
+                margin-right: 1rem;
+                color: #333;
+            }
+
+            .actions {
+                justify-content: flex-end;
+            }
+
+            .actions-col {
+                width: auto;
+            }
+        }
+    </style>
+
+    <script type="module" define:vars={{ managedLinks }}>
+        // @ts-nocheck
+        
+        // URL Validation utilities
+        const MAX_URL_LENGTH = 8192;
+        const DANGEROUS_PROTOCOLS = ["javascript:", "data:", "vbscript:", "file:", "about:", "blob:"];
+        const BLOCKED_HOSTNAMES = ["localhost", "127.0.0.1", "0.0.0.0", "::1"];
+
+        function validateUrl(url, options = {}) {
+            const {
+                allowHttp = true,
+                blockLocalhost = true,
+                maxLength = MAX_URL_LENGTH,
+            } = options;
+
+            if (!url || typeof url !== 'string') {
+                return { valid: false, error: 'URL is required' };
+            }
+
+            const trimmedUrl = url.trim();
+
+            if (trimmedUrl.length > maxLength) {
+                return { valid: false, error: `URL exceeds maximum length of ${maxLength} characters` };
+            }
+
+            if (trimmedUrl.length === 0) {
+                return { valid: false, error: 'URL cannot be empty' };
+            }
+
+            let normalizedUrl = trimmedUrl;
+            if (!/^[a-zA-Z][\w+.-]*:/.test(normalizedUrl)) {
+                if (normalizedUrl.startsWith('//')) {
+                    normalizedUrl = `https:${normalizedUrl}`;
+                } else {
+                    normalizedUrl = `https://${normalizedUrl}`;
+                }
+            }
+
+            const lowerUrl = normalizedUrl.toLowerCase();
+            for (const protocol of DANGEROUS_PROTOCOLS) {
+                if (lowerUrl.startsWith(protocol)) {
+                    return { valid: false, error: `Protocol ${protocol} is not allowed` };
+                }
+            }
+
+            let parsed;
+            try {
+                parsed = new URL(normalizedUrl);
+            } catch (err) {
+                return { valid: false, error: 'Invalid URL format' };
+            }
+
+            if (!allowHttp && parsed.protocol === 'http:') {
+                return { valid: false, error: 'HTTP is not allowed, use HTTPS' };
+            }
+
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                return { valid: false, error: 'Only HTTP and HTTPS protocols are allowed' };
+            }
+
+            if (blockLocalhost) {
+                const hostname = parsed.hostname.toLowerCase();
+                
+                if (BLOCKED_HOSTNAMES.includes(hostname)) {
+                    return { valid: false, error: 'Localhost URLs are not allowed' };
+                }
+
+                if (/^10\./.test(hostname) || 
+                    /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname) ||
+                    /^192\.168\./.test(hostname)) {
+                    return { valid: false, error: 'Private IP addresses are not allowed' };
+                }
+
+                if (/^169\.254\./.test(hostname)) {
+                    return { valid: false, error: 'Link-local addresses are not allowed' };
+                }
+
+                if (hostname.includes(':') && (
+                    hostname === '::1' ||
+                    hostname.startsWith('fe80:') ||
+                    hostname.startsWith('fc00:') ||
+                    hostname.startsWith('fd00:')
+                )) {
+                    return { valid: false, error: 'Private IPv6 addresses are not allowed' };
+                }
+            }
+
+            if (!parsed.hostname.includes('.')) {
+                return { valid: false, error: 'URL must have a valid domain' };
+            }
+
+            const tld = parsed.hostname.split('.').pop();
+            if (!tld || tld.length < 2) {
+                return { valid: false, error: 'Invalid top-level domain' };
+            }
+
+            return { valid: true, normalizedUrl };
+        }
+
+        const SECURITY_LABELS = {
+            plaintext: 'Plaintext',
+            encryptedAndDecryptionKeyInURL: 'Encrypted (key in link)',
+            encrypted: 'Encrypted (key separate)',
+        };
+
+        const securityLabelFor = (mode) => SECURITY_LABELS[mode] || 'Unknown';
+
+        const AES_IV_LENGTH = 16;
+        const AES_TAG_LENGTH = 16;
+        const textEncoder = new TextEncoder();
+
+        const bytesToBase64Url = (bytes) => {
+            let binary = '';
+            for (let i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            const base64 = btoa(binary);
+            return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+        };
+
+        const base64UrlToBytes = (b64url) => {
+            const normalized = b64url.replace(/-/g, '+').replace(/_/g, '/');
+            const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+            const binary = atob(padded);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes;
+        };
+
+        const generateRandomKeyBase64 = (lengthBits) => {
+            // Validate key length
+            if (lengthBits < 128) {
+                throw new Error('Key length must be at least 128 bits');
+            }
+            if (lengthBits > 4096) {
+                throw new Error('Key length must be at most 4096 bits');
+            }
+            
+            const lengthBytes = Math.ceil(lengthBits / 8);
+            const keyBytes = new Uint8Array(lengthBytes);
+            crypto.getRandomValues(keyBytes);
+            
+            // Validate entropy (ensure not all zeros or all same byte)
+            const uniqueBytes = new Set(keyBytes);
+            if (uniqueBytes.size < 2) {
+                throw new Error('Generated key has insufficient entropy');
+            }
+            
+            return bytesToBase64Url(keyBytes);
+        };
+
+        const looksLikeUrl = (value) => {
+            if (typeof value !== 'string') return false;
+            const trimmed = value.trim();
+            return /^(https?:\/\/)?[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(trimmed);
+        };
+
+        async function deriveEncryptionKey(keyBytes, salt) {
+            if (keyBytes.length === 32 && !salt) {
+                // Perfect length, use directly
+                return crypto.subtle.importKey(
+                    'raw',
+                    keyBytes,
+                    { name: 'AES-GCM' },
+                    false,
+                    ['encrypt']
+                );
+            }
+
+            // Use random salt for key derivation
+            const keyMaterial = await crypto.subtle.importKey('raw', keyBytes, 'PBKDF2', false, ['deriveKey']);
+            const actualSalt = salt || crypto.getRandomValues(new Uint8Array(16));
+            return {
+                key: await crypto.subtle.deriveKey(
+                    {
+                        name: 'PBKDF2',
+                        salt: actualSalt,
+                        iterations: 600000, // OWASP 2023 recommendation
+                        hash: 'SHA-256',
+                    },
+                    keyMaterial,
+                    { name: 'AES-GCM', length: 256 },
+                    false,
+                    ['encrypt']
+                ),
+                salt: actualSalt
+            };
+        }
+
+        async function encryptUrlClient(url, base64Key) {
+            const keyBytes = base64UrlToBytes(base64Key);
+            const keyResult = await deriveEncryptionKey(keyBytes);
+            
+            let aesKey, salt;
+            if (keyResult.key) {
+                // Non-256-bit key, used PBKDF2
+                aesKey = keyResult.key;
+                salt = keyResult.salt;
+            } else {
+                // 256-bit key, used directly
+                aesKey = keyResult;
+                salt = null;
+            }
+            
+            const iv = new Uint8Array(AES_IV_LENGTH);
+            crypto.getRandomValues(iv);
+
+            const plaintext = textEncoder.encode(url);
+            const encryptedBuffer = await crypto.subtle.encrypt(
+                { name: 'AES-GCM', iv },
+                aesKey,
+                plaintext
+            );
+
+            const encrypted = new Uint8Array(encryptedBuffer);
+            if (encrypted.length < AES_TAG_LENGTH) {
+                throw new Error('Ciphertext too short');
+            }
+
+            const tag = encrypted.slice(encrypted.length - AES_TAG_LENGTH);
+            const ciphertext = encrypted.slice(0, encrypted.length - AES_TAG_LENGTH);
+            
+            let combined;
+            if (salt) {
+                // Format: salt + iv + tag + ciphertext
+                combined = new Uint8Array(salt.length + iv.length + tag.length + ciphertext.length);
+                combined.set(salt, 0);
+                combined.set(iv, salt.length);
+                combined.set(tag, salt.length + iv.length);
+                combined.set(ciphertext, salt.length + iv.length + tag.length);
+            } else {
+                // Format: iv + tag + ciphertext (original format for 256-bit keys)
+                combined = new Uint8Array(iv.length + tag.length + ciphertext.length);
+                combined.set(iv, 0);
+                combined.set(tag, iv.length);
+                combined.set(ciphertext, iv.length + tag.length);
+            }
+            
+            return bytesToBase64Url(combined);
+        }
+
+        const supportsWebCrypto = typeof crypto !== 'undefined' && !!crypto.subtle;
+
         const form = document.getElementById('shorten-form');
         const resultEl = document.getElementById('result');
+        const keyLengthContainer = document.getElementById('key-length-container');
+        const keyLengthSlider = document.getElementById('key-length');
+        const keyLengthValue = document.getElementById('key-length-value');
+        const securityIndicator = document.getElementById('security-indicator');
+        const keyLengthWarning = document.getElementById('key-length-warning');
+        const securityRadios = document.querySelectorAll('input[name="security"]');
+
+    // Function to update security indicator based on key length (in bits)
+    // Following NIST SP 800-57 recommendations
+    /** @type {(lengthBits: number) => void} */
+    const updateSecurityIndicator = (lengthBits) => {
+            if (!keyLengthValue || !securityIndicator) return;
+            
+            keyLengthValue.textContent = `${lengthBits} bits`;
+            
+            // Check if it's an officially supported AES key length (128, 192, or 256)
+            const isStandardKeyLength = lengthBits === 128 || lengthBits === 192 || lengthBits === 256;
+            if (keyLengthWarning) {
+                keyLengthWarning.style.display = isStandardKeyLength ? 'none' : 'block';
+            }
+            
+            // NIST-based security categorization
+            let color, text;
+            
+            if (lengthBits >= 256) {
+                // AES-256: Maximum standard, quantum-resistant
+                color = '#228B22'; // Forest green
+                text = 'Extremely Secure';
+            } else if (lengthBits >= 192) {
+                // AES-192: High security, strong quantum resistance (~96-bit)
+                color = '#32CD32'; // Lime green
+                text = 'Very Secure';
+            } else if (lengthBits >= 128) {
+                // AES-128: Current commercial standard
+                color = '#9ACD32'; // Yellow-green
+                text = 'Good (Default)';
+            } else if (lengthBits >= 112) {
+                // NIST minimum for new applications (equivalent to 2048-bit RSA)
+                color = '#FFA500'; // Orange
+                text = 'Moderate';
+            } else if (lengthBits >= 80) {
+                // Deprecated for new use, only for legacy data
+                color = '#FF6347'; // Tomato
+                text = 'Somewhat Insecure';
+            } else if (lengthBits >= 56) {
+                // Broken/easily brute-forced (DES level)
+                color = '#DC143C'; // Crimson
+                text = 'Insecure';
+            } else {
+                // Immediately crackable
+                color = '#8B0000'; // Dark red
+                text = 'Very Insecure';
+            }
+            
+            securityIndicator.style.color = color;
+            securityIndicator.textContent = text;
+    };
+
+        // Show/hide key length slider based on security mode
+        function updateKeyLengthVisibility() {
+            if (!keyLengthContainer) return;
+            
+            const selectedRadio = document.querySelector('input[name="security"]:checked');
+            if (!selectedRadio || !(selectedRadio instanceof HTMLInputElement)) return;
+            
+            const selectedMode = selectedRadio.value;
+            if (selectedMode === 'encryptedAndDecryptionKeyInURL' || selectedMode === 'encrypted') {
+                keyLengthContainer.style.display = 'block';
+            } else {
+                keyLengthContainer.style.display = 'none';
+            }
+        }
+
+        // Event listeners for security mode changes
+        securityRadios.forEach(radio => {
+            radio.addEventListener('change', updateKeyLengthVisibility);
+        });
+
+        // Event listener for key length slider
+        if (keyLengthSlider && keyLengthSlider instanceof HTMLInputElement) {
+            keyLengthSlider.addEventListener('input', (e) => {
+                const target = e.target;
+                if (target && target instanceof HTMLInputElement) {
+                    updateSecurityIndicator(parseInt(target.value));
+                }
+            });
+            // Initialize with default value
+            updateSecurityIndicator(parseInt(keyLengthSlider.value));
+        }
+
+        // Initialize visibility
+        updateKeyLengthVisibility();
 
         if (form instanceof HTMLFormElement && resultEl) {
             form.addEventListener('submit', async (e) => {
+                // CRITICAL: Prevent default form submission to ensure no data
+                // (including sensitive URLs, keys, or encrypted payloads) is ever
+                // sent via traditional form POST. All communication with the server
+                // happens exclusively through explicit fetch() calls below.
                 e.preventDefault();
                 resultEl.textContent = 'Working...';
+
                 const formData = new FormData(form);
+                const rawUrl = (formData.get('url') || '').toString().trim();
+                const securityMode = (formData.get('security') || 'plaintext').toString();
+                const keyLengthValue = formData.get('keyLength');
+                const parsedKeyBits = keyLengthValue != null ? parseInt(keyLengthValue.toString(), 10) : 128;
+                const keyLengthBits = Number.isFinite(parsedKeyBits) ? parsedKeyBits : 128;
+
+                if (!rawUrl) {
+                    resultEl.textContent = 'Missing url field';
+                    return;
+                }
+
+                // Validate URL using comprehensive validation
+                const validation = validateUrl(rawUrl, { 
+                    allowHttp: true, 
+                    blockLocalhost: true,
+                    maxLength: MAX_URL_LENGTH 
+                });
+
+                if (!validation.valid) {
+                    resultEl.textContent = `Invalid URL: ${validation.error}`;
+                    return;
+                }
+
+                // Use the normalized URL from validation
+                const normalizedUrl = validation.normalizedUrl;
+
+                const requiresEncryption = securityMode === 'encrypted' || securityMode === 'encryptedAndDecryptionKeyInURL';
+
+                let generatedKey = null;
+                let urlToSend = normalizedUrl;
+                let isClientEncrypted = false;
+
+                if (requiresEncryption) {
+                    if (!supportsWebCrypto) {
+                        resultEl.textContent = 'This browser cannot perform secure encryption.';
+                        return;
+                    }
+                    
+                    try {
+                        generatedKey = generateRandomKeyBase64(keyLengthBits);
+                        const encryptedPayload = await encryptUrlClient(normalizedUrl, generatedKey);
+                        urlToSend = encryptedPayload;
+                        isClientEncrypted = true;
+                        // Do NOT send the encryption key to the server. For client-side
+                        // encryption modes we mark the payload as clientEncrypted and
+                        // keep the key only in the browser (it will be appended as a
+                        // fragment when showing the short URL). Sending the key to
+                        // the server would allow the server to decrypt links.
+                    } catch (err) {
+                        console.error('Client-side encryption failed', err);
+                        resultEl.textContent = 'Encryption failed. Please try again.';
+                        return;
+                    }
+                }
+
+                const requestBody = {
+                    url: urlToSend,
+                    security: securityMode,
+                    keyLength: keyLengthBits,
+                    clientEncrypted: isClientEncrypted
+                };
+
+                let data;
                 try {
-                    const res = await fetch(form.action, { method: 'POST', body: formData });
-                    const data = await res.json().catch(() => ({}));
-                    if (res.ok && data?.ok) {
-                        resultEl.innerHTML = `Short URL: <a href="${data.short}" target="_blank" rel="noopener noreferrer">${data.short}</a>`;
-                    } else {
-                        resultEl.textContent = data?.message || `Error (${res.status})`;
+                    // Explicitly call the API endpoint - never rely on form action attribute
+                    // to prevent accidental server submission with sensitive data
+                    const res = await fetch('/api/link/shorten', { 
+                        method: 'POST', 
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(requestBody)
+                    });
+                    data = await res.json().catch(() => ({}));
+                    if (!res.ok || !data?.ok) {
+                        const message = data?.message || `Error (${res.status})`;
+                        resultEl.textContent = message;
+                        return;
                     }
                 } catch (err) {
                     console.error(err);
                     resultEl.textContent = 'Network error';
+                    return;
+                }
+
+                let shortUrl = data.short;
+                if (typeof shortUrl !== 'string') {
+                    resultEl.textContent = 'Server error';
+                    return;
+                }
+
+                const keyFromServer = typeof data.key === 'string' ? data.key : null;
+                const keyForUser = generatedKey || keyFromServer;
+                let displayShort = shortUrl;
+
+                if (securityMode === 'encryptedAndDecryptionKeyInURL' && keyForUser) {
+                    displayShort = `${shortUrl}#${keyForUser}`;
+                }
+
+                const htmlParts = [
+                    `<div style="margin-bottom: 1rem;"><strong>Short URL:</strong><br><a href="${displayShort}" target="_blank" rel="noopener noreferrer" style="word-break: break-all;">${displayShort}</a></div>`
+                ];
+
+                if (securityMode === 'encrypted' && keyForUser) {
+                    const keyLiteral = JSON.stringify(keyForUser);
+                    htmlParts.push(`<div style="background: #fff3cd; border: 2px solid #ffc107; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+                                <strong style="color: #856404;">⚠️ IMPORTANT - Save this decryption key:</strong><br>
+                                <code style="background: white; padding: 0.5rem; display: block; margin: 0.5rem 0; word-break: break-all; font-size: 14px; border: 1px solid #ddd; border-radius: 4px;">${keyForUser}</code>
+                                <small style="color: #856404;">You will need this key to access the URL. It will not be shown again!</small>
+                                <br>
+                                <button onclick="navigator.clipboard.writeText(${keyLiteral}); this.textContent='Copied!'; setTimeout(() => this.textContent='Copy Key', 2000)" style="margin-top: 0.5rem; padding: 0.5rem 1rem; background: #ffc107; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Copy Key</button>
+                            </div>`);
+                }
+
+                if (data.warning) {
+                    htmlParts.push(`<div style="background: #fff3cd; border: 1px solid #ffc107; padding: 0.75rem; border-radius: 4px; margin-bottom: 1rem;">
+                                <strong style="color: #856404;">⚠️ ${data.warning}</strong>
+                            </div>`);
+                }
+
+                if (data.message && data.message !== 'Short URL created') {
+                    htmlParts.push(`<div style="color: #666; font-size: 14px;">${data.message}</div>`);
+                }
+
+                resultEl.innerHTML = htmlParts.join('');
+
+                if (tableBody) {
+                    await refreshLinks();
                 }
             });
         }
+
+        const links = Array.isArray(managedLinks)
+            ? managedLinks.map((link) => ({
+                ...link,
+                securityLabel: link.securityLabel || securityLabelFor(link.securityMode),
+            }))
+            : [];
+        const tableBody = document.querySelector('[data-link-rows]');
+        const tableContainer = document.querySelector('[data-table-container]');
+        const emptyState = document.getElementById('manage-empty');
+        const statusBanner = document.getElementById('manage-status');
+
+        const renderLinks = () => {
+            if (!tableBody || !tableContainer || !emptyState) return;
+            tableBody.innerHTML = '';
+            if (!links.length) {
+                tableContainer.setAttribute('style', 'display:none;');
+                emptyState.setAttribute('style', 'display:block;');
+                return;
+            }
+
+            tableContainer.setAttribute('style', 'display:block;');
+            emptyState.setAttribute('style', 'display:none;');
+
+            for (const link of links) {
+                const tr = document.createElement('tr');
+                tr.dataset.code = link.code;
+                const lastUsedCell = link.lastAccessedIso 
+                    ? `<time datetime="${link.lastAccessedIso}">${link.lastAccessedDisplay}</time>`
+                    : '<span class="never">Never</span>';
+                tr.innerHTML = `
+                    <td data-label="Short URL"><a href="${link.short}" target="_blank" rel="noopener noreferrer">${link.short}</a></td>
+                    <td data-label="Security">${link.securityLabel || securityLabelFor(link.securityMode)}</td>
+                    <td data-label="Visits">${link.usageCount}</td>
+                    <td data-label="Created"><time datetime="${link.createdAtIso}">${link.createdAtDisplay}</time></td>
+                    <td data-label="Last Used">${lastUsedCell}</td>
+                    <td class="actions"><button type="button" class="danger" data-action="delete-link" data-code="${link.code}">Delete</button></td>
+                `;
+                tableBody.appendChild(tr);
+            }
+        };
+
+        const refreshLinks = async () => {
+            if (!tableBody) return;
+            try {
+                const res = await fetch('/api/link/list');
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data?.ok || !Array.isArray(data.links)) {
+                    return;
+                }
+                const normalised = data.links.map((link) => ({
+                    ...link,
+                    securityLabel: link.securityLabel || securityLabelFor(link.securityMode),
+                }));
+                links.splice(0, links.length, ...normalised);
+                renderLinks();
+            } catch (err) {
+                console.error('Failed to refresh links', err);
+            }
+        };
+
+        if (tableBody) {
+            renderLinks();
+        }
+
+        const showStatus = (message) => {
+            if (!statusBanner) return;
+            statusBanner.textContent = message;
+            statusBanner.style.display = 'block';
+        };
+
+        const clearStatus = () => {
+            if (!statusBanner) return;
+            statusBanner.style.display = 'none';
+            statusBanner.textContent = '';
+        };
+
+        const deleteLink = async (code) => {
+            try {
+                clearStatus();
+                const res = await fetch('/api/link/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data?.ok) {
+                    throw new Error(data?.message || 'Unable to delete link');
+                }
+                const index = links.findIndex((link) => link.code === code);
+                if (index !== -1) {
+                    links.splice(index, 1);
+                }
+                renderLinks();
+            } catch (err) {
+                showStatus(err.message || 'Unable to delete link');
+                throw err;
+            }
+        };
+
+        document.addEventListener('click', async (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLButtonElement)) return;
+            if (target.dataset.action !== 'delete-link') return;
+            const code = target.dataset.code;
+            if (!code) return;
+            target.disabled = true;
+            const original = target.textContent;
+            target.textContent = 'Deleting...';
+            try {
+                await deleteLink(code);
+            } catch (_) {
+                // Error already surfaced via status banner
+            } finally {
+                target.disabled = false;
+                target.textContent = original;
+            }
+        });
     </script>
 </Layout>

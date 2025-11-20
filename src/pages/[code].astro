@@ -1,0 +1,511 @@
+---
+// Dynamic redirect route for short URLs - fully client-side for security
+// Server provides data once, then all processing happens client-side
+// Replaces the current location with the decrypted URL to avoid fragment leakage
+
+import Layout from '../layouts/Layout.astro';
+import { query } from '../lib/db.js';
+import { ensureShortLinksExtended } from '../lib/rateLimit.js';
+import { schedulePrune } from '../lib/prune.js';
+
+export const prerender = false;
+
+const { code } = Astro.params;
+
+if (!code || code.length > 16) {
+  return Astro.redirect('/404', 302);
+}
+
+let linkData = null;
+let error = null;
+
+try {
+  await ensureShortLinksExtended();
+  schedulePrune();
+
+  const rows = await query(
+    'SELECT id, original_url, security_mode, is_encrypted FROM short_links WHERE short_code = ? LIMIT 1',
+    [code]
+  );
+  
+  if (!rows || rows.length === 0) {
+    error = 'Link not found';
+  } else {
+    const row = rows[0];
+
+    // Strip BigInt values before passing to the client script
+    linkData = {
+      original_url: row.original_url,
+      security_mode: row.security_mode,
+      is_encrypted: row.is_encrypted === 1 || row.is_encrypted === true,
+    };
+    
+    // Fire-and-forget usage update
+    query('UPDATE short_links SET usage_count = usage_count + 1, last_accessed = NOW() WHERE id = ?', [row.id])
+      .catch(err => console.error('Failed to update usage_count', err));
+  }
+} catch (err) {
+  console.error('Redirect lookup failed', err);
+  error = 'Server error';
+}
+---
+
+<Layout title={error ? "Link Not Found" : "Redirecting..."}>
+  {error ? (
+    <div class="error-container">
+      <h1>❌ {error}</h1>
+      <p>The link you're looking for doesn't exist or has expired.</p>
+      <a href="/">Go Home</a>
+    </div>
+  ) : (
+    <div class="redirect-container">
+      <div class="spinner"></div>
+  <p id="status">Preparing redirect...</p>
+      <div id="key-prompt" style="display: none;">
+        <label for="decryption-key">Enter decryption key:</label>
+        <input type="password" id="decryption-key" placeholder="Enter key..." />
+        <button id="decrypt-btn">Decrypt & Open</button>
+      </div>
+      <p id="error" class="error" style="display: none;"></p>
+    </div>
+  )}
+</Layout>
+
+<style>
+  .redirect-container {
+    text-align: center;
+    padding: 2rem;
+    max-width: 500px;
+    margin: 0 auto;
+  }
+
+  .spinner {
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #007bff;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 1rem;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  #status {
+    color: #666;
+    margin: 1rem 0;
+  }
+
+  #key-prompt {
+    margin-top: 2rem;
+  }
+
+  #key-prompt label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: bold;
+  }
+
+  #decryption-key {
+    padding: 0.5rem;
+    font-size: 1rem;
+    width: 100%;
+    max-width: 300px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+  }
+
+  #decrypt-btn {
+    padding: 0.5rem 1rem;
+    background: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+  }
+
+  #decrypt-btn:hover {
+    background: #0056b3;
+  }
+
+  .error {
+    color: #dc3545;
+    background: #f8d7da;
+    padding: 1rem;
+    border-radius: 4px;
+    margin-top: 1rem;
+  }
+
+  .error-container {
+    text-align: center;
+    padding: 2rem;
+  }
+  
+  .error-container h1 {
+    color: #dc3545;
+    margin-bottom: 1rem;
+  }
+  
+  .error-container a {
+    display: inline-block;
+    margin-top: 1rem;
+    padding: 0.5rem 1rem;
+    background: #007bff;
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+  }
+  
+  .error-container a:hover {
+    background: #0056b3;
+  }
+</style>
+
+{!error && <script define:vars={{ linkData }}>
+  // All processing happens client-side after page load
+  // No more server communication after this point
+
+  // URL Validation utilities - defense against malicious URLs
+  const MAX_URL_LENGTH = 8192;
+  const DANGEROUS_PROTOCOLS = ["javascript:", "data:", "vbscript:", "file:", "about:", "blob:"];
+  const BLOCKED_HOSTNAMES = ["localhost", "127.0.0.1", "0.0.0.0", "::1"];
+
+  function validateUrl(url, options = {}) {
+    const {
+      allowHttp = true,
+      blockLocalhost = true,
+      maxLength = MAX_URL_LENGTH,
+    } = options;
+
+    if (!url || typeof url !== 'string') {
+      return { valid: false, error: 'URL is required' };
+    }
+
+    const trimmedUrl = url.trim();
+
+    if (trimmedUrl.length > maxLength) {
+      return { valid: false, error: `URL exceeds maximum length of ${maxLength} characters` };
+    }
+
+    if (trimmedUrl.length === 0) {
+      return { valid: false, error: 'URL cannot be empty' };
+    }
+
+    let normalizedUrl = trimmedUrl;
+    if (!/^[a-zA-Z][\w+.-]*:/.test(normalizedUrl)) {
+      if (normalizedUrl.startsWith('//')) {
+        normalizedUrl = `https:${normalizedUrl}`;
+      } else {
+        normalizedUrl = `https://${normalizedUrl}`;
+      }
+    }
+
+    const lowerUrl = normalizedUrl.toLowerCase();
+    for (const protocol of DANGEROUS_PROTOCOLS) {
+      if (lowerUrl.startsWith(protocol)) {
+        return { valid: false, error: `Protocol ${protocol} is not allowed` };
+      }
+    }
+
+    let parsed;
+    try {
+      parsed = new URL(normalizedUrl);
+    } catch (err) {
+      return { valid: false, error: 'Invalid URL format' };
+    }
+
+    if (!allowHttp && parsed.protocol === 'http:') {
+      return { valid: false, error: 'HTTP is not allowed, use HTTPS' };
+    }
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return { valid: false, error: 'Only HTTP and HTTPS protocols are allowed' };
+    }
+
+    if (blockLocalhost) {
+      const hostname = parsed.hostname.toLowerCase();
+      
+      if (BLOCKED_HOSTNAMES.includes(hostname)) {
+        return { valid: false, error: 'Localhost URLs are not allowed' };
+      }
+
+      if (/^10\./.test(hostname) || 
+          /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname) ||
+          /^192\.168\./.test(hostname)) {
+        return { valid: false, error: 'Private IP addresses are not allowed' };
+      }
+
+      if (/^169\.254\./.test(hostname)) {
+        return { valid: false, error: 'Link-local addresses are not allowed' };
+      }
+
+      if (hostname.includes(':') && (
+          hostname === '::1' ||
+          hostname.startsWith('fe80:') ||
+          hostname.startsWith('fc00:') ||
+          hostname.startsWith('fd00:')
+        )) {
+        return { valid: false, error: 'Private IPv6 addresses are not allowed' };
+      }
+    }
+
+    if (!parsed.hostname.includes('.')) {
+      return { valid: false, error: 'URL must have a valid domain' };
+    }
+
+    const tld = parsed.hostname.split('.').pop();
+    if (!tld || tld.length < 2) {
+      return { valid: false, error: 'Invalid top-level domain' };
+    }
+
+    return { valid: true, normalizedUrl };
+  }
+
+  const { original_url, security_mode } = linkData;
+
+  const statusEl = document.getElementById('status');
+  const spinnerEl = document.querySelector('.spinner');
+  const keyPrompt = document.getElementById('key-prompt');
+  const keyInput = document.getElementById('decryption-key');
+  const decryptBtn = document.getElementById('decrypt-btn');
+  const errorEl = document.getElementById('error');
+
+  let manualMode = null;
+
+  function setStatus(message) {
+    if (!statusEl) return;
+    statusEl.textContent = message;
+    statusEl.style.display = 'block';
+  }
+
+  function hideError() {
+    if (errorEl) {
+      errorEl.style.display = 'none';
+      errorEl.textContent = '';
+    }
+  }
+
+  function hideSpinner() {
+    if (spinnerEl) spinnerEl.style.display = 'none';
+  }
+
+  function showSpinner() {
+    if (spinnerEl) spinnerEl.style.display = 'block';
+  }
+
+  // Show error message (fatal)
+  function showError(message) {
+    if (errorEl) {
+      errorEl.textContent = message;
+      errorEl.style.display = 'block';
+    }
+    if (statusEl) statusEl.style.display = 'none';
+    hideSpinner();
+    if (keyPrompt) keyPrompt.style.display = 'none';
+    manualMode = null;
+  }
+
+  function showManualPrompt(message, mode, { reset = false } = {}) {
+    manualMode = mode;
+    hideError();
+    hideSpinner();
+    if (keyPrompt) keyPrompt.style.display = 'block';
+    setStatus(message);
+    if (keyInput) {
+      if (reset) keyInput.value = '';
+      keyInput.focus();
+      keyInput.select();
+    }
+  }
+
+  // Decrypt encrypted URL with key
+  async function decryptUrl(encryptedData, base64Key) {
+    try {
+      const base64urlToBytes = (b64url) => {
+        const normalized = b64url.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+        const binary = atob(padded);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        return bytes;
+      };
+
+      const combined = base64urlToBytes(encryptedData);
+      const IV_LENGTH = 16;
+      const TAG_LENGTH = 16;
+
+      if (combined.length <= IV_LENGTH + TAG_LENGTH) {
+        throw new Error('Invalid encrypted data payload');
+      }
+
+      const iv = combined.slice(0, IV_LENGTH);
+      const authTag = combined.slice(IV_LENGTH, IV_LENGTH + TAG_LENGTH);
+      const ciphertext = combined.slice(IV_LENGTH + TAG_LENGTH);
+
+      const keyBytes = base64urlToBytes(base64Key);
+
+      let cryptoKey;
+      if (keyBytes.length === 32) {
+        cryptoKey = await crypto.subtle.importKey(
+          'raw',
+          keyBytes,
+          { name: 'AES-GCM' },
+          false,
+          ['decrypt']
+        );
+      } else {
+        const keyMaterial = await crypto.subtle.importKey(
+          'raw',
+          keyBytes,
+          'PBKDF2',
+          false,
+          ['deriveKey']
+        );
+
+        const salt = new TextEncoder().encode('url-encryption-salt');
+        cryptoKey = await crypto.subtle.deriveKey(
+          {
+            name: 'PBKDF2',
+            salt,
+            iterations: 100000,
+            hash: 'SHA-256',
+          },
+          keyMaterial,
+          { name: 'AES-GCM', length: 256 },
+          false,
+          ['decrypt']
+        );
+      }
+
+      const ciphertextWithTag = new Uint8Array(ciphertext.length + authTag.length);
+      ciphertextWithTag.set(ciphertext);
+      ciphertextWithTag.set(authTag, ciphertext.length);
+
+      const decrypted = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv },
+        cryptoKey,
+        ciphertextWithTag
+      );
+
+      return new TextDecoder().decode(decrypted);
+    } catch (err) {
+      console.error('Decryption failed:', err);
+      throw new Error('Failed to decrypt URL. Invalid key?');
+    }
+  }
+
+  function replaceLocation(url) {
+    try {
+      // Validate URL before redirecting - defense against malicious URLs
+      const validation = validateUrl(url, {
+        allowHttp: true,
+        blockLocalhost: true,
+        maxLength: MAX_URL_LENGTH
+      });
+
+      if (!validation.valid) {
+        showError(`Security check failed: ${validation.error}`);
+        return;
+      }
+
+      setStatus('Redirecting...');
+      // Use the validated and normalized URL
+      window.location.replace(validation.normalizedUrl);
+    } catch (err) {
+      console.error('Navigation failed:', err);
+      showError('Unable to navigate automatically. Please copy the URL and open it manually.');
+    }
+  }
+
+  function clearFragment() {
+    if (window.location.hash) {
+      const baseUrl = window.location.pathname + window.location.search;
+      history.replaceState(null, '', baseUrl);
+    }
+  }
+
+  async function attemptDecrypt(key, { fallbackMode = null, failureMessage } = {}) {
+    if (!key) {
+      setStatus('Please enter a decryption key.');
+      return;
+    }
+
+    showSpinner();
+    hideError();
+    if (keyPrompt) keyPrompt.style.display = 'none';
+    setStatus('Decrypting...');
+
+    try {
+      const decryptedUrl = await decryptUrl(original_url, key);
+      manualMode = null;
+      setStatus('Opening link...');
+      replaceLocation(decryptedUrl);
+    } catch (err) {
+      const message = failureMessage || err.message || 'Decryption failed. Please try again.';
+      if (fallbackMode) {
+        showManualPrompt(message, fallbackMode);
+      } else {
+        showError(message);
+      }
+    }
+  }
+
+  const handleManualSubmission = async () => {
+    if (!manualMode || !keyInput) return;
+    const userKey = keyInput.value.trim();
+    await attemptDecrypt(userKey, {
+      fallbackMode: manualMode,
+      failureMessage: 'Invalid decryption key. Please try again.',
+    });
+  };
+
+  if (decryptBtn && keyInput) {
+    decryptBtn.addEventListener('click', handleManualSubmission);
+    keyInput.addEventListener('keypress', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        handleManualSubmission();
+      }
+    });
+  }
+
+  async function handleRedirect() {
+    if (security_mode === 'plaintext') {
+      setStatus('Opening link...');
+      replaceLocation(original_url);
+      return;
+    }
+
+    if (security_mode === 'encryptedAndDecryptionKeyInURL') {
+      const fragment = window.location.hash.substring(1);
+      if (fragment) {
+        clearFragment();
+        await attemptDecrypt(fragment, {
+          fallbackMode: 'encryptedAndDecryptionKeyInURL',
+          failureMessage: 'The embedded key did not work. Enter it manually to continue.',
+        });
+      } else {
+        showManualPrompt('This link is missing its decryption key. Enter it to continue.', 'encryptedAndDecryptionKeyInURL', { reset: true });
+      }
+      return;
+    }
+
+    if (security_mode === 'encrypted') {
+      showManualPrompt('Enter the decryption key to open this link.', 'encrypted', { reset: true });
+    }
+  }
+
+  hideError();
+  setStatus('Preparing redirect...');
+  handleRedirect().catch((err) => {
+    console.error('Redirect error:', err);
+    showError(err.message || 'An error occurred');
+  });
+</script>}

@@ -1,6 +1,15 @@
 app:
   baseUrl: https://example.com
   logLevel: info
+  # REQUIRED: Base64url-encoded encryption key for sensitive data (TOTP secrets, etc.)
+  # Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+  encryptionKey: CHANGE_ME_GENERATE_A_SECURE_KEY
+  # Uncomment and set these links to enable footer links in the app
+  # footerLinks:
+  #   privacyPolicy: https://example.com/privacy
+  #   termsOfService: https://example.com/terms
+  #   securityPolicy: https://github.com/yourorg/security-policy
+  #   legal: https://example.com/legal
 
 features:
   chat:
@@ -13,6 +22,7 @@ features:
   linkShortener:
     enabled: true
     allow_anonymous: true
+    delete_unused_after_days: 90 # Set to 0 to disable
   uploads:
     enabled: true
     allow_anonymous: true
@@ -27,3 +37,37 @@ database:
   user: super_awesome_web_tools
   password: super_secure_password
   database: super_awesome_web_tools
+
+# Optional SMTP configuration for email verification and password reset
+# If not configured, users can still register but won't receive verification emails
+# smtp:
+#   host: smtp.example.com
+#   port: 587
+#   secure: false  # true for port 465, false for STARTTLS on 587
+#   auth:
+#     user: your-email@example.com
+#     pass: your-smtp-password
+#   from: noreply@example.com
+
+# Authentication security settings
+auth:
+  password:
+    minLength: 12  # Minimum password length (NIST recommends at least 8)
+    requireUppercase: false  # Require at least one uppercase letter
+    requireLowercase: false  # Require at least one lowercase letter
+    requireNumber: false  # Require at least one number
+    requireSpecial: false  # Require at least one special character (!@#$%^&*(),.?":{}|<>)
+  lockout:
+    enabled: true  # Enable account lockout after failed login attempts
+    maxAttempts: 5  # Maximum failed login attempts before lockout
+    exponentialDelay: true  # Use exponential backoff (delay = baseDelaySeconds * 2^(attempts-1))
+    baseDelaySeconds: 2  # Base delay for exponential backoff (2s, 4s, 8s, 16s, 32s...)
+    lockoutDurationMinutes: 30  # Duration of account lockout
+    sendLockoutEmail: true  # Send email notification when account is locked (requires SMTP)
+
+limits:
+  linkShortenerPerHour: 100  # Per user/IP limit
+  linkShortenerGlobalPerHour: 10000  # System-wide limit (prevents DoS)
+  rateLimitWindowMinutes: 60  # Sliding window size (60 = 1 hour sliding window)
+  codeAllocationRetries: 10
+  maxConcurrentAllocations: 50

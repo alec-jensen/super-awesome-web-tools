@@ -1,0 +1,482 @@
+---
+import Layout from '../../layouts/Layout.astro';
+
+export const prerender = false;
+
+// This page is shown when 2FA is required during login
+// The email will be passed via URL parameter
+const email = Astro.url.searchParams.get('email');
+
+if (!email) {
+  return Astro.redirect('/app/login');
+}
+---
+
+<Layout title="Two-Factor Authentication">
+  <div class="verify-2fa-container">
+    <h1>Two-Factor Authentication</h1>
+    <p>Choose your authentication method to complete sign in</p>
+    
+    <input type="hidden" id="email-value" value={email} />
+    
+    <!-- Method selection -->
+    <div id="method-selection" class="method-selection">
+      <button type="button" class="method-btn" data-method="email" style="display:none;">
+        <span class="method-icon">&#x1F4E7;</span>
+        <div class="method-info">
+          <strong>Email Code</strong>
+          <small>Send code to your email</small>
+        </div>
+      </button>
+      
+      <button type="button" class="method-btn" data-method="totp" style="display:none;">
+        <span class="method-icon">&#x1F510;</span>
+        <div class="method-info">
+          <strong>Authenticator App</strong>
+          <small>Use your TOTP app</small>
+        </div>
+      </button>
+      
+      <button type="button" class="method-btn" data-method="passkey" style="display:none;">
+        <span class="method-icon">🔑</span>
+        <div class="method-info">
+          <strong>Passkey</strong>
+          <small>Use biometric or security key</small>
+        </div>
+      </button>
+      
+      <button type="button" class="method-btn" data-method="backup" style="display:none;">
+        <span class="method-icon">🔒</span>
+        <div class="method-info">
+          <strong>Backup Code</strong>
+          <small>Use a one-time backup code</small>
+        </div>
+      </button>
+    </div>
+    
+    <!-- Code entry form (shown after method selection) -->
+    <form id="verify-2fa-form" style="display:none;">
+      <div class="selected-method-info">
+        <button type="button" id="back-to-methods" class="back-btn">← Change method</button>
+        <h2 id="method-title">Enter Code</h2>
+      </div>
+      
+      <div class="form-group">
+        <label for="code" id="code-label">Authentication Code</label>
+        <input
+          type="text"
+          id="code"
+          name="code"
+          placeholder="000000"
+          maxlength="8"
+          autocomplete="one-time-code"
+          required
+        />
+        <p id="help-text" class="help-text">Enter the code</p>
+      </div>
+      
+      <button type="submit" class="btn-primary">Verify</button>
+      
+      <p id="error-message" class="error" style="display:none;"></p>
+    </form>
+    
+    <div class="back-link">
+      <a href="/app/login">← Back to login</a>
+    </div>
+  </div>
+
+  <style>
+    .verify-2fa-container {
+      max-width: 500px;
+      margin: 2rem auto;
+      padding: 2rem;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    h1 {
+      margin: 0 0 0.5rem;
+      font-size: 1.5rem;
+      color: #111;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 1.25rem;
+      color: #333;
+    }
+
+    p {
+      margin: 0 0 1.5rem;
+      color: #666;
+    }
+
+    .method-selection {
+      display: grid;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .method-btn {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      width: 100%;
+      padding: 1rem;
+      background: white;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-align: left;
+    }
+
+    .method-btn:hover {
+      border-color: #667eea;
+      background: #f5f7ff;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+    }
+
+    .method-btn:active {
+      transform: translateY(0);
+      box-shadow: 0 2px 6px rgba(102, 126, 234, 0.15);
+    }
+
+    .method-icon {
+      font-size: 2rem;
+      line-height: 1;
+    }
+
+    .method-info {
+      flex: 1;
+    }
+
+    .method-info strong {
+      display: block;
+      font-size: 1rem;
+      color: #333;
+      margin-bottom: 0.25rem;
+    }
+
+    .method-info small {
+      display: block;
+      font-size: 0.875rem;
+      color: #666;
+    }
+
+    .selected-method-info {
+      margin-bottom: 1.5rem;
+    }
+
+    .back-btn {
+      background: none;
+      border: none;
+      color: #667eea;
+      cursor: pointer;
+      font-size: 0.9rem;
+      padding: 0;
+      margin-bottom: 0.5rem;
+      transition: all 0.2s ease;
+    }
+
+    .back-btn:hover {
+      text-decoration: underline;
+      color: #5568d3;
+    }
+
+    .back-btn:active {
+      color: #4451b8;
+    }
+
+    .form-group {
+      margin-bottom: 1.5rem;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-weight: 600;
+      color: #333;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 0.75rem;
+      font-size: 1.5rem;
+      text-align: center;
+      letter-spacing: 0.5em;
+      border: 2px solid #ddd;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .help-text {
+      margin: 0.5rem 0 0;
+      font-size: 0.875rem;
+      color: #666;
+    }
+
+    .btn-primary {
+      width: 100%;
+      padding: 0.75rem;
+      font-size: 1rem;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s ease;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-primary:active {
+      transform: translateY(0);
+      box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+    }
+
+    .error {
+      padding: 0.75rem;
+      background: #fee;
+      border: 1px solid #fcc;
+      border-radius: 4px;
+      color: #c33;
+      margin-top: 1rem;
+    }
+
+    .back-link {
+      margin-top: 1.5rem;
+      text-align: center;
+    }
+
+    .back-link a {
+      color: #667eea;
+      text-decoration: none;
+    }
+
+    .back-link a:hover {
+      text-decoration: underline;
+    }
+  </style>
+
+  <script>
+    const emailValue = document.getElementById('email-value')?.getAttribute('value') || '';
+    const methodSelection = document.getElementById('method-selection');
+    const form = document.getElementById('verify-2fa-form');
+    const codeInput = document.getElementById('code');
+    const errorMessage = document.getElementById('error-message');
+    const backToMethods = document.getElementById('back-to-methods');
+    const methodTitle = document.getElementById('method-title');
+    const codeLabel = document.getElementById('code-label');
+    const helpText = document.getElementById('help-text');
+    
+    let selectedMethod = '';
+    let isEmailCodeSent = false;
+    let emailIdempotencyKey = '';
+
+    // Load available 2FA methods from sessionStorage
+    const methodsData = sessionStorage.getItem('2fa-methods');
+    const methods = methodsData ? JSON.parse(methodsData) : {};
+    
+    // Show available method buttons
+    if (methods.email) {
+      const emailBtn = document.querySelector('[data-method="email"]') as HTMLElement;
+      if (emailBtn) emailBtn.style.display = 'flex';
+    }
+    if (methods.totp) {
+      const totpBtn = document.querySelector('[data-method="totp"]') as HTMLElement;
+      if (totpBtn) totpBtn.style.display = 'flex';
+    }
+    if (methods.passkey) {
+      const passkeyBtn = document.querySelector('[data-method="passkey"]') as HTMLElement;
+      if (passkeyBtn) passkeyBtn.style.display = 'flex';
+    }
+    if (methods.backupCodes) {
+      const backupBtn = document.querySelector('[data-method="backup"]') as HTMLElement;
+      if (backupBtn) backupBtn.style.display = 'flex';
+    }
+
+    // Method selection handlers
+    document.querySelectorAll('.method-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const method = btn.getAttribute('data-method');
+        if (method) {
+          await selectMethod(method);
+        }
+      });
+    });
+
+    async function selectMethod(method: string) {
+      selectedMethod = method;
+      
+      if (errorMessage) {
+        errorMessage.style.display = 'none';
+      }
+
+      // Handle passkey method (no code input needed)
+      if (method === 'passkey') {
+        await handlePasskeyAuth();
+        return;
+      }
+
+      // Show code input form immediately (don't wait for email to send)
+      if (methodSelection) methodSelection.style.display = 'none';
+      if (form) form.style.display = 'block';
+
+      // Update UI based on method
+      if (codeInput instanceof HTMLInputElement) {
+        if (method === 'totp') {
+          if (methodTitle) methodTitle.textContent = 'Authenticator App';
+          if (codeLabel) codeLabel.textContent = 'Enter TOTP Code';
+          if (helpText) helpText.textContent = 'Enter the 6-digit code from your authenticator app';
+          codeInput.placeholder = '000000';
+          codeInput.maxLength = 6;
+        } else if (method === 'email') {
+          if (methodTitle) methodTitle.textContent = 'Email Verification';
+          if (codeLabel) codeLabel.textContent = 'Enter Email Code';
+          if (helpText) helpText.textContent = 'Sending code to your email...';
+          codeInput.placeholder = '000000';
+          codeInput.maxLength = 6;
+        } else if (method === 'backup') {
+          if (methodTitle) methodTitle.textContent = 'Backup Code';
+          if (codeLabel) codeLabel.textContent = 'Enter Backup Code';
+          if (helpText) helpText.textContent = 'Enter an 8-character backup code';
+          codeInput.placeholder = 'XXXXXXXX';
+          codeInput.maxLength = 8;
+        }
+        
+        codeInput.value = '';
+        codeInput.focus();
+      }
+      
+      // Send email code in background after showing the form
+      if (method === 'email' && !isEmailCodeSent) {
+        sendEmailCode();
+      }
+    }
+
+    async function sendEmailCode() {
+      try {
+        // Generate idempotency key if we don't have one
+        if (!emailIdempotencyKey) {
+          emailIdempotencyKey = crypto.randomUUID();
+        }
+        
+        const response = await fetch('/api/auth/2fa/email/send-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            email: emailValue,
+            idempotencyKey: emailIdempotencyKey
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+          isEmailCodeSent = true;
+          // Update idempotency key from server if provided
+          if (data.idempotencyKey) {
+            emailIdempotencyKey = data.idempotencyKey;
+          }
+          // Update help text to confirm email was sent
+          if (helpText && selectedMethod === 'email') {
+            helpText.textContent = 'Check your email for the 6-digit verification code';
+            helpText.style.color = '#059669'; // Green color
+          }
+        } else {
+          if (errorMessage) {
+            errorMessage.textContent = data.message || 'Failed to send email code';
+            errorMessage.style.display = 'block';
+          }
+          // Update help text to show error
+          if (helpText && selectedMethod === 'email') {
+            helpText.textContent = 'Failed to send code. Please try another method.';
+            helpText.style.color = '#dc2626'; // Red color
+          }
+        }
+      } catch (error) {
+        console.error('Failed to send email code:', error);
+        if (helpText && selectedMethod === 'email') {
+          helpText.textContent = 'Failed to send code. Please try another method.';
+          helpText.style.color = '#dc2626'; // Red color
+        }
+      }
+    }
+
+    async function handlePasskeyAuth() {
+      // TODO: Implement passkey authentication for login
+      // For now, show an error
+      if (errorMessage) {
+        errorMessage.textContent = 'Passkey authentication during login is not yet implemented. Please use another method.';
+        errorMessage.style.display = 'block';
+      }
+    }
+
+    // Back to methods button
+    backToMethods?.addEventListener('click', () => {
+      if (form) form.style.display = 'none';
+      if (methodSelection) methodSelection.style.display = 'grid';
+      if (errorMessage) errorMessage.style.display = 'none';
+      selectedMethod = '';
+    });
+
+    // Form submission
+    form?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const codeValue = (codeInput instanceof HTMLInputElement) ? codeInput.value.trim() : '';
+      
+      if (!codeValue) {
+        if (errorMessage) {
+          errorMessage.textContent = 'Please enter a code';
+          errorMessage.style.display = 'block';
+        }
+        return;
+      }
+      
+      try {
+        const response = await fetch('/api/auth/2fa/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            email: emailValue, 
+            code: codeValue, 
+            isBackupCode: selectedMethod === 'backup',
+            isEmailCode: selectedMethod === 'email'
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (data.ok) {
+          // Clear sessionStorage
+          sessionStorage.removeItem('2fa-methods');
+          window.location.href = '/app/link';
+        } else {
+          if (errorMessage) {
+            errorMessage.textContent = data.message || 'Invalid code';
+            errorMessage.style.display = 'block';
+          }
+        }
+      } catch (error) {
+        console.error('Verification error:', error);
+        if (errorMessage) {
+          errorMessage.textContent = 'An error occurred. Please try again.';
+          errorMessage.style.display = 'block';
+        }
+      }
+    });
+  </script>
+</Layout>
