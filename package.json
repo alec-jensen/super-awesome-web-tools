@@ -12,7 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "astro": "^5.15.9",
+    "astro": "^5.16.10",
     "@astrojs/node": "^9.4.5",
     "mariadb": "^3.3.1",
     "nodemailer": "^7.0.10",
