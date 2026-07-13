@@ -1,0 +1,9 @@
+Contact: mailto:alec@alecj.com
+Contact: mailto:alecjsecurity@proton.me
+Contact: https://alecj.com/contact/
+Expires: 2028-07-13T00:00
+Encryption: https://alecj.com/.well-known/pgp-key.txt
+Acknowledgments: https://alecj.com/acknowledgements/
+Policy: https://alecj.com/security/
+Preferred-Languages: en
+Canonical: https://alecj.com/.well-known/security.txt
