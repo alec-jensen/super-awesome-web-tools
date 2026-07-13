@@ -1,0 +1,666 @@
+---
+import Layout from '../../../layouts/Layout.astro';
+
+export const prerender = false;
+---
+
+<Layout title="Security Information">
+  <div class="security-page">
+    <h1>🔒 Link Shortener Security</h1>
+    <p class="intro">
+      Understanding the security and privacy implications of each option helps you make informed decisions about your data.
+    </p>
+
+    <section class="security-option">
+      <div class="option-header plaintext">
+        <h2>Plaintext (Not Private)</h2>
+        <span class="security-badge low">Low Security</span>
+      </div>
+      
+      <div class="option-content">
+        <h3>How it works:</h3>
+        <p>
+          Your URL is stored <strong>as-is</strong> in our database without any encryption. 
+          The short code is generated sequentially (a, b, c, ... aa, ab, ...).
+        </p>
+
+        <h3>✅ Advantages:</h3>
+        <ul>
+          <li><strong>Shortest possible links</strong> - No encryption overhead means minimal characters</li>
+          <li><strong>Simple and fast</strong> - No key management or decryption needed</li>
+          <li><strong>Easy sharing</strong> - Just copy and paste the short URL</li>
+          <li><strong>Always accessible</strong> - No key to lose or forget</li>
+        </ul>
+
+        <h3>⚠️ Security Concerns:</h3>
+        <ul>
+          <li><strong>Database access reveals URLs</strong> - Anyone with database access can see your original URL</li>
+          <li><strong>URL enumeration possible</strong> - Sequential codes (a, b, c...) allow attackers to discover all URLs by trying every code</li>
+          <li><strong>Server logs may capture URLs</strong> - Your URL passes through our servers and may appear in logs</li>
+          <li><strong>No privacy protection</strong> - Should be considered "public" data</li>
+          <li><strong>Compliance issues</strong> - May not meet GDPR, HIPAA, or other privacy regulations</li>
+        </ul>
+
+        <h3>🎯 Best for:</h3>
+        <ul>
+          <li>Public websites and resources</li>
+          <li>Marketing campaigns and social media</li>
+          <li>Non-sensitive content</li>
+          <li>Situations where link length matters most</li>
+        </ul>
+
+        <h3>❌ Avoid for:</h3>
+        <ul>
+          <li>Personal or confidential information</li>
+          <li>Internal company resources</li>
+          <li>Anything you wouldn't post publicly</li>
+          <li>URLs containing sensitive parameters or tokens</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="security-option">
+      <div class="option-header encrypted-with-key">
+        <h2>Encrypted (Decryption Key in URL)</h2>
+        <span class="security-badge medium">Medium Security</span>
+      </div>
+      
+      <div class="option-content">
+        <h3>How it works:</h3>
+        <p>
+          Your URL is <strong>encrypted in your browser</strong> using AES-256-GCM before being sent to our server. 
+          The encryption key is appended to the short link as a URL fragment (the part after #). 
+          The server never sees or stores your decryption key.
+        </p>
+
+        <div class="tech-detail">
+          <strong>Technical:</strong> The URL fragment (#key) is never sent to servers in HTTP requests - 
+          it stays in your browser and is processed client-side only.
+        </div>
+
+        <h3>✅ Advantages:</h3>
+        <ul>
+          <li><strong>Zero-knowledge architecture</strong> - Server cannot decrypt your URL</li>
+          <li><strong>Database breach protection</strong> - Stolen database only contains encrypted blobs</li>
+          <li><strong>Automatic decryption</strong> - Recipients just click the link, no key entry needed</li>
+          <li><strong>Easy sharing</strong> - One complete link contains everything</li>
+          <li><strong>Strong encryption</strong> - AES-256-GCM is military-grade, NIST-approved</li>
+        </ul>
+
+        <h3>⚠️ Security Concerns:</h3>
+        <ul>
+          <li><strong>Link = full access</strong> - Anyone with the complete URL can decrypt and access the original URL</li>
+          <li><strong>Longer links</strong> - Encryption key adds 21-43 characters (depending on key length)</li>
+          <li><strong>Fragment leakage risks</strong> - May appear in browser history, bookmarks, or password managers</li>
+          <li><strong>Shared link = shared secret</strong> - Can't revoke access once link is shared</li>
+          <li><strong>Copy-paste errors</strong> - Fragment (#key) might get truncated when copying</li>
+        </ul>
+
+        <h3>🎯 Best for:</h3>
+        <ul>
+          <li>Sharing with trusted recipients</li>
+          <li>Internal team resources</li>
+          <li>Time-sensitive links (you control deletion)</li>
+          <li>Situations requiring both security and convenience</li>
+          <li>Links shared via secure channels (encrypted messaging, etc.)</li>
+        </ul>
+
+        <h3>❌ Avoid for:</h3>
+        <ul>
+          <li>Public posting (social media, forums)</li>
+          <li>Highly sensitive data requiring access control</li>
+          <li>Situations where link might be screenshotted/photographed</li>
+          <li>Long-term secrets (prefer separate key mode)</li>
+        </ul>
+
+        <div class="example">
+          <strong>Example:</strong><br>
+          <code>https://example.com/abc#xK9mP2nR5tL8qW4jH7vB</code><br>
+          <span class="note">The part after # is the encryption key (never sent to server)</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="security-option">
+      <div class="option-header encrypted-separate">
+        <h2>Encrypted (Decryption Key Separate)</h2>
+        <span class="security-badge high">High Security</span>
+      </div>
+      
+      <div class="option-content">
+        <h3>How it works:</h3>
+        <p>
+          Your URL is <strong>encrypted in your browser</strong> using AES-256-GCM. 
+          The short link contains only encrypted data. The decryption key is shown to you <strong>once</strong> 
+          and must be saved separately. Recipients need both the link AND the key to access the URL.
+        </p>
+
+        <h3>✅ Advantages:</h3>
+        <ul>
+          <li><strong>Maximum security</strong> - Two-factor access (link + key)</li>
+          <li><strong>Zero-knowledge architecture</strong> - Server cannot decrypt your URL</li>
+          <li><strong>Short links</strong> - Same length as plaintext (no key in URL)</li>
+          <li><strong>Access control</strong> - You control who gets the key</li>
+          <li><strong>Secure deletion</strong> - Deleting link OR losing key both render data inaccessible</li>
+          <li><strong>Audit trail</strong> - Can track who you gave keys to</li>
+          <li><strong>Defense in depth</strong> - Even if link leaks, data stays encrypted</li>
+        </ul>
+
+        <h3>⚠️ Security Concerns:</h3>
+        <ul>
+          <li><strong>Key management burden</strong> - You must save and securely transmit the key</li>
+          <li><strong>Usability friction</strong> - Recipients must enter key manually</li>
+          <li><strong>Lost key = lost data</strong> - No key recovery mechanism (by design)</li>
+          <li><strong>Two-step sharing</strong> - Must send link and key separately (via different channels)</li>
+          <li><strong>Key transmission risk</strong> - Key must be securely communicated (not via email/SMS if possible)</li>
+        </ul>
+
+        <h3>🎯 Best for:</h3>
+        <ul>
+          <li>Highly confidential information</li>
+          <li>Compliance-regulated data (GDPR, HIPAA, etc.)</li>
+          <li>Corporate secrets or intellectual property</li>
+          <li>Situations requiring access control</li>
+          <li>Long-term secure storage</li>
+          <li>When you need to verify who accessed the link</li>
+        </ul>
+
+        <h3>❌ Avoid for:</h3>
+        <ul>
+          <li>Quick, casual sharing</li>
+          <li>Non-technical recipients</li>
+          <li>Public or marketing links</li>
+          <li>Situations where convenience is critical</li>
+        </ul>
+
+        <div class="best-practice">
+          <h4>🔐 Best Practices:</h4>
+          <ul>
+            <li><strong>Use different channels:</strong> Send link via email, key via Signal/WhatsApp</li>
+            <li><strong>Store key securely:</strong> Use password manager, not plain text file</li>
+            <li><strong>Verify receipt:</strong> Confirm recipient has both link and key</li>
+            <li><strong>Set expectations:</strong> Warn that lost key = lost access</li>
+            <li><strong>Document key location:</strong> Note where you stored the key</li>
+          </ul>
+        </div>
+
+        <div class="example">
+          <strong>Example workflow:</strong><br>
+          1. Create link: <code>https://example.com/xyz</code><br>
+          2. Save key: <code>qR7tY9pL3nK5mW8jH2vB</code> (copy to password manager)<br>
+          3. Send link via email<br>
+          4. Send key via encrypted messenger (Signal, etc.)<br>
+          5. Recipient pastes key when prompted to decrypt
+        </div>
+      </div>
+    </section>
+
+    <section class="comparison">
+      <h2>📊 Quick Comparison</h2>
+      <div class="comparison-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Feature</th>
+              <th>Plaintext</th>
+              <th>Encrypted (Key in URL)</th>
+              <th>Encrypted (Key Separate)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Link Length</td>
+              <td class="good">Shortest</td>
+              <td class="warning">Longest</td>
+              <td class="good">Short</td>
+            </tr>
+            <tr>
+              <td>Ease of Use</td>
+              <td class="good">Easiest</td>
+              <td class="good">Easy</td>
+              <td class="warning">Requires key entry</td>
+            </tr>
+            <tr>
+              <td>Database Breach Protection</td>
+              <td class="bad">None</td>
+              <td class="good">Full</td>
+              <td class="good">Full</td>
+            </tr>
+            <tr>
+              <td>URL Enumeration Protection</td>
+              <td class="bad">None</td>
+              <td class="good">Full</td>
+              <td class="good">Full</td>
+            </tr>
+            <tr>
+              <td>Link Leak Protection</td>
+              <td class="bad">None</td>
+              <td class="bad">None</td>
+              <td class="good">Full</td>
+            </tr>
+            <tr>
+              <td>Access Control</td>
+              <td class="bad">None</td>
+              <td class="warning">Link = Access</td>
+              <td class="good">Link + Key Required</td>
+            </tr>
+            <tr>
+              <td>Key Management</td>
+              <td class="good">Not needed</td>
+              <td class="good">Automatic</td>
+              <td class="warning">Manual (you manage)</td>
+            </tr>
+            <tr>
+              <td>Privacy Level</td>
+              <td class="bad">Public</td>
+              <td class="warning">Semi-Private</td>
+              <td class="good">Private</td>
+            </tr>
+            <tr>
+              <td>Compliance Ready</td>
+              <td class="bad">No</td>
+              <td class="warning">Depends</td>
+              <td class="good">Yes</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="technical-details">
+      <h2>🔬 Technical Details</h2>
+      
+      <h3>Encryption Algorithm</h3>
+      <p>
+        All encrypted modes use <strong>AES-256-GCM</strong> (Advanced Encryption Standard with 256-bit keys in Galois/Counter Mode):
+      </p>
+      <ul>
+        <li><strong>Cipher:</strong> AES-256 (NIST FIPS 197)</li>
+        <li><strong>Mode:</strong> GCM (provides both encryption and authentication)</li>
+        <li><strong>Key Size:</strong> 128-256 bits (configurable, default 128)</li>
+        <li><strong>IV:</strong> 128-bit random initialization vector (new per encryption)</li>
+        <li><strong>Auth Tag:</strong> 128-bit authentication tag (prevents tampering)</li>
+      </ul>
+
+      <h3>Key Derivation (for non-standard key lengths)</h3>
+      <p>If you choose a key length other than 128, 192, or 256 bits:</p>
+      <ul>
+        <li><strong>Algorithm:</strong> PBKDF2-SHA256</li>
+        <li><strong>Iterations:</strong> 100,000 (OWASP minimum)</li>
+        <li><strong>Salt:</strong> Fixed salt for key normalization</li>
+        <li><strong>Output:</strong> 256-bit derived key</li>
+      </ul>
+
+      <h3>Client-Side Encryption</h3>
+      <p>
+        All encryption happens <strong>in your browser</strong> using the Web Crypto API. 
+        Your original URL never leaves your device in plaintext. The server only receives 
+        and stores encrypted blobs that it cannot decrypt.
+      </p>
+
+      <h3>Sequential Code Generation</h3>
+      <p>
+        Short codes are currently generated sequentially (a, b, c, ... aa, ab, ...). 
+        While this allows enumeration of plaintext links, encrypted links remain protected 
+        since the encrypted payload is meaningless without the key.
+      </p>
+      <div class="note">
+        <strong>Note:</strong> Random code generation is planned for future versions to 
+        eliminate enumeration risks for plaintext links.
+      </div>
+    </section>
+
+    <section class="recommendations">
+      <h2>💡 Our Recommendations</h2>
+      
+      <div class="recommendation-card">
+        <h3>For Public/Marketing Use:</h3>
+        <p><strong>Use Plaintext</strong> - Shortest links, easiest to share, appropriate for public content</p>
+      </div>
+
+      <div class="recommendation-card">
+        <h3>For Internal Team Sharing:</h3>
+        <p><strong>Use Encrypted (Key in URL)</strong> - Protects against database breaches while maintaining convenience</p>
+      </div>
+
+      <div class="recommendation-card">
+        <h3>For Confidential Data:</h3>
+        <p><strong>Use Encrypted (Key Separate)</strong> - Maximum security, compliance-ready, proper access control</p>
+      </div>
+    </section>
+
+    <section class="faq">
+      <h2>❓ Frequently Asked Questions</h2>
+      
+      <details>
+        <summary>Can you recover my encrypted URL if I lose the key?</summary>
+        <p>
+          <strong>No.</strong> This is by design. We use zero-knowledge encryption, meaning we never 
+          have access to your decryption key. If you lose the key, the data is permanently inaccessible. 
+          This is a feature, not a bug - it ensures your privacy.
+        </p>
+      </details>
+
+      <details>
+        <summary>Can your employees see my URLs?</summary>
+        <p>
+          <strong>Plaintext:</strong> Yes, anyone with database access can see plaintext URLs.<br>
+          <strong>Encrypted:</strong> No, we only store encrypted blobs that we cannot decrypt.
+        </p>
+      </details>
+
+      <details>
+        <summary>What happens if your database is breached?</summary>
+        <p>
+          <strong>Plaintext:</strong> All URLs would be exposed.<br>
+          <strong>Encrypted:</strong> Attackers only get meaningless encrypted data. Your URLs remain secure.
+        </p>
+      </details>
+
+      <details>
+        <summary>Are the encryption keys secure?</summary>
+        <p>
+          Yes. Keys are generated using cryptographically secure random number generators (crypto.getRandomValues() 
+          in your browser). They're 128-256 bits of pure randomness, making brute force attacks computationally infeasible.
+        </p>
+      </details>
+
+      <details>
+        <summary>Can someone enumerate all short URLs?</summary>
+        <p>
+          <strong>Plaintext:</strong> Yes, codes are sequential (a, b, c...) so all plaintext URLs can be discovered.<br>
+          <strong>Encrypted:</strong> While codes can be enumerated, you only get encrypted data without keys.
+        </p>
+      </details>
+
+      <details>
+        <summary>How long are encrypted links valid?</summary>
+        <p>
+          Links remain valid until you delete them or they're pruned (default: 90 days of inactivity). 
+          The encryption never "expires" - as long as the link exists and you have the key, you can decrypt it.
+        </p>
+      </details>
+
+      <details>
+        <summary>What encryption standard do you use?</summary>
+        <p>
+          AES-256-GCM (Advanced Encryption Standard, 256-bit keys, Galois/Counter Mode). This is the same 
+          encryption used by governments and militaries worldwide. It's NIST-approved and considered unbreakable 
+          with current technology.
+        </p>
+      </details>
+    </section>
+
+    <div class="cta">
+      <a href="/app/link" class="button">Create a Secure Short Link</a>
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .security-page {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 1rem;
+    text-align: left;
+  }
+
+  .security-page h1 {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    text-align: center;
+  }
+
+  .intro {
+    font-size: 1.1rem;
+    color: #666;
+    text-align: center;
+    margin-bottom: 3rem;
+    line-height: 1.6;
+  }
+
+  .security-option {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    border: 2px solid #dee2e6;
+  }
+
+  .option-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid #dee2e6;
+  }
+
+  .option-header h2 {
+    margin: 0;
+    font-size: 1.75rem;
+  }
+
+  .security-badge {
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    font-weight: bold;
+    font-size: 0.875rem;
+    text-transform: uppercase;
+  }
+
+  .security-badge.low {
+    background: #fff3cd;
+    color: #856404;
+    border: 2px solid #ffc107;
+  }
+
+  .security-badge.medium {
+    background: #d1ecf1;
+    color: #0c5460;
+    border: 2px solid #17a2b8;
+  }
+
+  .security-badge.high {
+    background: #d4edda;
+    color: #155724;
+    border: 2px solid #28a745;
+  }
+
+  .option-content h3 {
+    color: #333;
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+    font-size: 1.25rem;
+  }
+
+  .option-content ul {
+    margin: 0.5rem 0 1rem 1.5rem;
+    line-height: 1.8;
+  }
+
+  .option-content li {
+    margin-bottom: 0.5rem;
+  }
+
+  .tech-detail, .best-practice, .example, .note {
+    background: white;
+    padding: 1rem;
+    border-radius: 4px;
+    margin: 1rem 0;
+    border-left: 4px solid #007bff;
+  }
+
+  .best-practice {
+    border-left-color: #28a745;
+  }
+
+  .example {
+    border-left-color: #6c757d;
+  }
+
+  .note {
+    border-left-color: #ffc107;
+    background: #fff3cd;
+  }
+
+  code {
+    background: #e9ecef;
+    padding: 0.2rem 0.4rem;
+    border-radius: 3px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+  }
+
+  .comparison {
+    margin: 3rem 0;
+  }
+
+  .comparison h2 {
+    text-align: center;
+    margin-bottom: 2rem;
+  }
+
+  .comparison-table {
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  th, td {
+    padding: 1rem;
+    text-align: left;
+    border-bottom: 1px solid #dee2e6;
+  }
+
+  th {
+    background: #343a40;
+    color: white;
+    font-weight: bold;
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+
+  .good {
+    color: #28a745;
+    font-weight: bold;
+  }
+
+  .warning {
+    color: #ffc107;
+    font-weight: bold;
+  }
+
+  .bad {
+    color: #dc3545;
+    font-weight: bold;
+  }
+
+  .technical-details {
+    background: #e9ecef;
+    padding: 2rem;
+    border-radius: 8px;
+    margin: 3rem 0;
+  }
+
+  .recommendations {
+    margin: 3rem 0;
+  }
+
+  .recommendation-card {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    border-left: 4px solid #007bff;
+  }
+
+  .recommendation-card h3 {
+    margin-top: 0;
+    color: #007bff;
+  }
+
+  .faq {
+    margin: 3rem 0;
+  }
+
+  details {
+    background: white;
+    padding: 1rem;
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+    border: 1px solid #dee2e6;
+  }
+
+  summary {
+    cursor: pointer;
+    font-weight: bold;
+    color: #007bff;
+    padding: 0.5rem;
+  }
+
+  summary:hover {
+    background: #f8f9fa;
+    border-radius: 4px;
+  }
+
+  details[open] summary {
+    margin-bottom: 1rem;
+  }
+
+  details p {
+    margin: 0;
+    padding-left: 0.5rem;
+    line-height: 1.6;
+  }
+
+  .cta {
+    text-align: center;
+    margin-top: 3rem;
+  }
+
+  .button {
+    display: inline-block;
+    padding: 1rem 2rem;
+    background: #007bff;
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+    font-weight: bold;
+    font-size: 1.1rem;
+    transition: background 0.2s;
+  }
+
+  .button:hover {
+    background: #0056b3;
+  }
+
+  @media (max-width: 768px) {
+    .security-page h1 {
+      font-size: 2rem;
+    }
+
+    .option-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
+
+    table {
+      font-size: 0.875rem;
+    }
+
+    th, td {
+      padding: 0.5rem;
+    }
+  }
+</style>
+</Layout>

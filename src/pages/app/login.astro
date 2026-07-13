@@ -1,0 +1,146 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { getSessionUser } from '../../lib/auth/session.js';
+
+export const prerender = false;
+
+const user = await getSessionUser(Astro.cookies);
+if (user) {
+  return Astro.redirect('/app/link');
+}
+---
+
+<Layout title="Sign In">
+  <section class="auth-container">
+    <h1>Sign in to manage your data</h1>
+    <form id="login-form">
+      <label>
+        Email
+        <input type="email" name="email" required autocomplete="email" />
+      </label>
+      <label>
+        Password
+        <input type="password" name="password" required autocomplete="current-password" minlength="12" />
+      </label>
+      <p class="forgot-password"><a href="/app/forgot-password">Forgot password?</a></p>
+      <button type="submit">Sign In</button>
+      <p class="helper">Need an account? <a href="/app/register">Create one</a>.</p>
+      <p id="login-error" class="error" role="alert" style="display:none;"></p>
+    </form>
+  </section>
+
+  <style>
+    .auth-container {
+      max-width: 400px;
+      margin: 0 auto;
+      padding: 2rem;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border: 1px solid #dee2e6;
+    }
+
+    form {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      font-weight: 600;
+      color: #333;
+    }
+
+    input {
+      margin-top: 0.35rem;
+      padding: 0.6rem;
+      font-size: 1rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+
+    button {
+      padding: 0.75rem;
+      font-size: 1rem;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #0056b3;
+    }
+
+    .helper {
+      font-size: 0.9rem;
+      color: #555;
+    }
+
+    .forgot-password {
+      font-size: 0.9rem;
+      text-align: right;
+      margin-top: -0.5rem;
+    }
+
+    .forgot-password a {
+      color: #007bff;
+      text-decoration: none;
+    }
+
+    .forgot-password a:hover {
+      text-decoration: underline;
+    }
+
+    .error {
+      color: #dc3545;
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+      padding: 0.75rem;
+      border-radius: 4px;
+    }
+  </style>
+
+  <script type="module">
+    const form = document.getElementById('login-form');
+    const errorEl = document.getElementById('login-error');
+
+    if (form instanceof HTMLFormElement && errorEl instanceof HTMLElement) {
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        errorEl.style.display = 'none';
+        const formData = new FormData(form);
+        const payload = Object.fromEntries(formData.entries());
+
+        try {
+          const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data?.ok) {
+            throw new Error(data?.message || 'Unable to sign in');
+          }
+          
+          // Check if 2FA is required
+          if (data.requires2FA) {
+            // Store 2FA methods in sessionStorage for the verify page
+            if (data.twoFactorMethods) {
+              sessionStorage.setItem('2fa-methods', JSON.stringify(data.twoFactorMethods));
+            }
+            window.location.href = `/app/verify-2fa?email=${encodeURIComponent(data.email)}`;
+            return;
+          }
+          
+          window.location.href = '/app/link';
+        } catch (err) {
+          errorEl.textContent = err.message || 'Unexpected error';
+          errorEl.style.display = 'block';
+        }
+      });
+    }
+  </script>
+</Layout>

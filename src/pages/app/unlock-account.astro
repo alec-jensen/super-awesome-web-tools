@@ -1,0 +1,154 @@
+---
+import Layout from '../../layouts/Layout.astro';
+
+export const prerender = false;
+
+const token = Astro.url.searchParams.get('token');
+const hasToken = typeof token === 'string' && token.length > 0;
+---
+
+<Layout title="Unlock Account">
+  <div class="unlock-container">
+    <h1>Unlock Your Account</h1>
+    
+    {hasToken ? (
+      <div id="unlock-form">
+        <p>Click the button below to unlock your account.</p>
+        <button id="unlock-btn" class="btn">Unlock Account</button>
+        <div id="message"></div>
+      </div>
+    ) : (
+      <div class="error">
+        <p>Invalid or missing unlock token. Please use the link from your email.</p>
+        <a href="/app/login">Return to Login</a>
+      </div>
+    )}
+  </div>
+
+  <style>
+    .unlock-container {
+      max-width: 500px;
+      margin: 4rem auto;
+      padding: 2rem;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    h1 {
+      margin-top: 0;
+      color: #333;
+      text-align: center;
+    }
+    
+    p {
+      color: #666;
+      margin-bottom: 1.5rem;
+    }
+    
+    .btn {
+      width: 100%;
+      padding: 0.75rem;
+      background: #0066cc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    
+    .btn:hover {
+      background: #0052a3;
+    }
+    
+    .btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    
+    #message {
+      margin-top: 1rem;
+      padding: 0.75rem;
+      border-radius: 4px;
+      display: none;
+    }
+    
+    #message.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+      display: block;
+    }
+    
+    #message.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+      display: block;
+    }
+    
+    .error {
+      text-align: center;
+      color: #721c24;
+    }
+    
+    .error a {
+      display: inline-block;
+      margin-top: 1rem;
+      color: #0066cc;
+      text-decoration: none;
+    }
+    
+    .error a:hover {
+      text-decoration: underline;
+    }
+  </style>
+
+  <script define:vars={{ token }}>
+    const btn = document.getElementById('unlock-btn');
+    const messageDiv = document.getElementById('message');
+    
+    if (btn && messageDiv) {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = 'Unlocking...';
+        messageDiv.className = '';
+        messageDiv.style.display = 'none';
+        
+        try {
+          const response = await fetch('/api/auth/unlock-account', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: token })
+          });
+          
+          const data = await response.json();
+          
+          if (data.ok) {
+            messageDiv.className = 'success';
+            messageDiv.textContent = data.message + ' Redirecting to login...';
+            messageDiv.style.display = 'block';
+            
+            setTimeout(() => {
+              window.location.href = '/app/login';
+            }, 2000);
+          } else {
+            messageDiv.className = 'error';
+            messageDiv.textContent = data.message;
+            messageDiv.style.display = 'block';
+            btn.disabled = false;
+            btn.textContent = 'Unlock Account';
+          }
+        } catch (err) {
+          console.error('Unlock error:', err);
+          messageDiv.className = 'error';
+          messageDiv.textContent = 'An error occurred. Please try again.';
+          messageDiv.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = 'Unlock Account';
+        }
+      });
+    }
+  </script>
+</Layout>

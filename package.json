@@ -3,14 +3,23 @@
   "type": "module",
   "version": "0.0.1",
   "scripts": {
-    "dev": "astro dev",
+    "dev": "node scripts/dev.js",
     "build": "astro build",
     "preview": "astro preview",
-    "start": "node dist/server/entry.mjs",
-    "astro": "astro"
+    "start": "node scripts/start.js",
+    "db:health": "node scripts/db-health-check.js",
+    "astro": "astro",
+    "test": "vitest run"
   },
   "dependencies": {
-    "astro": "^5.13.10",
-    "@astrojs/node": "^9.4.4"
+    "astro": "^5.15.9",
+    "@astrojs/node": "^9.5.1",
+    "mariadb": "^3.3.1",
+    "nodemailer": "^7.0.10",
+    "yaml": "^2.5.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.8"
   }
 }
